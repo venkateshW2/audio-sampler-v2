@@ -1,7 +1,0 @@
-prefix=/mnt/2w12-data/audio-sampler-v2/miniconda
-includedir=${prefix}/include
- 
-Name: KBProto
-Description: KB extension headers
-Version: 1.0.7
-Cflags: -I${includedir}

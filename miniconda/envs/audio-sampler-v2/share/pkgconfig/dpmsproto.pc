@@ -1,7 +1,0 @@
-prefix=/mnt/2w12-data/audio-sampler-v2/miniconda/envs/audio-sampler-v2
-includedir=${prefix}/include
-
-Name: DPMSProto
-Description: DPMS extension headers
-Version: 1.2
-Cflags: -I${includedir}

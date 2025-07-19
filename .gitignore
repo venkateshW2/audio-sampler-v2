@@ -47,7 +47,8 @@ models/
 .DS_Store
 Thumbs.db
 
-# Conda/pip
+# Conda/pip - Exclude local environment
+miniconda/
 miniconda_installer.sh
 
 # Development

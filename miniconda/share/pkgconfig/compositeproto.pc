@@ -1,7 +1,0 @@
-prefix=/mnt/2w12-data/audio-sampler-v2/miniconda
-includedir=${prefix}/include
-
-Name: CompositeExt
-Description: Composite extension headers
-Version: 0.4.2
-Cflags: -I${includedir}

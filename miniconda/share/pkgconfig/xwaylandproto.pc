@@ -1,7 +1,0 @@
-prefix=/mnt/2w12-data/audio-sampler-v2/miniconda
-includedir=${prefix}/include
-
-Name: XwaylandProto
-Description: Xwayland extension headers
-Version: 1.0
-Cflags: -I${includedir}

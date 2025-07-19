@@ -1,4 +1,0 @@
-Name: nlohmann_json
-Description: JSON for Modern C++
-Version: 3.11.2
-Cflags: -I/mnt/2w12-data/audio-sampler-v2/miniconda/include

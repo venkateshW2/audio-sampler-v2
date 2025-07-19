@@ -1,7 +1,0 @@
-prefix=/mnt/2w12-data/audio-sampler-v2/miniconda/envs/audio-sampler-v2
-includedir=${prefix}/include
- 
-Name: DRI3Proto
-Description: DRI3 extension headers
-Version: 1.4
-Cflags: -I${includedir}
