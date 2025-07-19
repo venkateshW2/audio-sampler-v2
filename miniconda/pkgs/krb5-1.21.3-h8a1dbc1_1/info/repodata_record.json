@@ -1,0 +1,26 @@
+{
+  "arch": "x86_64",
+  "build": "h8a1dbc1_1",
+  "build_number": 1,
+  "channel": "https://repo.anaconda.com/pkgs/main/linux-64/",
+  "constrains": [],
+  "depends": [
+    "__glibc >=2.17,<3.0.a0",
+    "libedit >=3.1.20221030,<3.2.0a0",
+    "libedit >=3.1.20221030,<4.0a0",
+    "libgcc-ng >=11.2.0",
+    "openssl >=3.0.16,<4.0a0"
+  ],
+  "fn": "krb5-1.21.3-h8a1dbc1_1.conda",
+  "license": "MIT",
+  "license_family": "MIT",
+  "md5": "820a0852ab5d20268b8216c386716f33",
+  "name": "krb5",
+  "platform": "linux",
+  "sha256": "251c981b950c92a6b5baeadbbe5cd931ea3b064b8d0d93f2f0dd8ea8cc2cce83",
+  "size": 1403041,
+  "subdir": "linux-64",
+  "timestamp": 1752616954000,
+  "url": "https://repo.anaconda.com/pkgs/main/linux-64/krb5-1.21.3-h8a1dbc1_1.conda",
+  "version": "1.21.3"
+}

@@ -1,0 +1,28 @@
+{
+  "arch": "x86_64",
+  "build": "py313h2ccb017_0",
+  "build_number": 0,
+  "channel": "https://repo.anaconda.com/pkgs/main/linux-64/",
+  "constrains": [
+    "pyopenssl >=23.0.0"
+  ],
+  "depends": [
+    "cffi >=1.14",
+    "libgcc-ng",
+    "openssl >=3.0.16,<4.0a0",
+    "python >=3.13,<3.14.0a0",
+    "python_abi 3.13.* *_cp313"
+  ],
+  "fn": "cryptography-45.0.3-py313h2ccb017_0.conda",
+  "license": "Apache-2.0 OR BSD-3-Clause",
+  "license_family": "OTHER",
+  "md5": "50a9a59ddbcfe7912aae0a81cd7e31b1",
+  "name": "cryptography",
+  "platform": "linux",
+  "sha256": "3c7fa9fb03eaf84ff3a597c738087783e07cf6a1102c772bd04b9fa4a853cb9a",
+  "size": 1776098,
+  "subdir": "linux-64",
+  "timestamp": 1748977942000,
+  "url": "https://repo.anaconda.com/pkgs/main/linux-64/cryptography-45.0.3-py313h2ccb017_0.conda",
+  "version": "45.0.3"
+}

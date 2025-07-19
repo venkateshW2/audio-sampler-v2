@@ -1,0 +1,12 @@
+{
+  "libnghttp2": "1",
+  "c_compiler_version": "11.2.0",
+  "target_platform": "linux-64",
+  "zlib": "1.2",
+  "channel_targets": "defaults",
+  "c_compiler": "gcc",
+  "libssh2": "1",
+  "openssl": "3",
+  "zstd": "1.5",
+  "krb5": "1.21"
+}

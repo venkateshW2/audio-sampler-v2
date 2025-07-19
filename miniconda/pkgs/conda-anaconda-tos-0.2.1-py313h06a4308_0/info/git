@@ -1,0 +1,17 @@
+==> /croot/conda-anaconda-tos_1752801564376/_build_env/bin/git log -n1 <==
+commit 17b49919af21ae9f3d5559683c9e2c789a109777
+Author: Ken Odegard <kodegard@anaconda.com>
+Date:   Fri Jul 18 02:30:13 2025 +0200
+
+    Improve CI & `auto_accept_tos` messaging (#238)
+==> /croot/conda-anaconda-tos_1752801564376/_build_env/bin/git describe --tags --dirty <==
+0.2.1
+==> /croot/conda-anaconda-tos_1752801564376/_build_env/bin/git status <==
+HEAD detached at 0.2.1
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	build_env_setup.sh
+	conda_build.sh
+	metadata_conda_debug.yaml
+
+nothing added to commit but untracked files present (use "git add" to track)

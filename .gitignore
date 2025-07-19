@@ -1,0 +1,76 @@
+# Audio Intelligence Sampler v2 - Git Ignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Audio Sampler specific
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+temp/
+uploads/
+logs/
+*.log
+
+# Audio files (large)
+*.wav
+*.mp3
+*.flac
+*.aac
+*.m4a
+*.ogg
+
+# Model files (large - store separately)
+models/
+*.pt
+*.pth
+*.pb
+*.onnx
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Conda/pip
+miniconda_installer.sh
+
+# Development
+.pytest_cache/
+coverage.xml
+*.cover
+.coverage
+htmlcov/
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg

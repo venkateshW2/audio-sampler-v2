@@ -1,0 +1,46 @@
+# Audio Intelligence Sampler v2 - Phase 1 Requirements
+# PyTorch-ONLY stack - Optimized for GTX 1060
+
+# Core PyTorch Stack (install first with CUDA)
+torch==2.5.1
+torchaudio==2.5.1
+torchvision
+
+# Core Audio Processing
+librosa==0.10.1  # Known working version from 2w12-backend
+soundfile>=0.12.1
+scipy>=1.11.4
+numpy>=1.21.0
+
+# FastAPI Backend
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+pydantic==2.5.0
+aiofiles==23.2.1
+
+# Spotify Audio Libraries
+pedalboard>=0.9.0
+basic-pitch
+
+# Music Information Retrieval
+madmom==0.16.1
+
+# GPU-Accelerated Audio
+nnAudio>=0.2.6
+
+# Database & Storage
+sqlalchemy>=1.4.0
+
+# Supporting Libraries
+matplotlib>=3.5.0
+music21>=7.0.0
+python-json-logger>=2.0.0
+click>=8.0.0
+tqdm>=4.65.0
+psutil>=5.9.5
+requests>=2.31.0
+
+# Development/Testing
+pytest>=6.2.0
+pytest-asyncio>=0.15.0

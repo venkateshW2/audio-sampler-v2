@@ -1,0 +1,7 @@
+prefix=/mnt/2w12-data/audio-sampler-v2/miniconda
+includedir=${prefix}/include
+
+Name: RenderProto
+Description: Render extension headers
+Version: 0.11.1
+Cflags: -I${includedir}

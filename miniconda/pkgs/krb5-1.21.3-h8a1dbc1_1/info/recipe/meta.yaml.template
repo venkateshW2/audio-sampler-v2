@@ -1,0 +1,65 @@
+{% set name = "krb5" %}
+{% set version = "1.21.3" %}
+
+package:
+  name: {{ name|lower }}
+  version: {{ version }}
+
+source:
+  url: https://github.com/krb5/{{ name }}/archive/{{ name }}-{{ version }}-final.tar.gz
+  sha256: 2157d92020d408ed63ebcd886a92d1346a1383b0f91123a0473b4f69b4a24861
+
+build:
+  number: 1
+  skip: True  # [win and vc<14]
+  run_exports:
+    # stable within minor revisions: https://abi-laboratory.pro/tracker/timeline/krb5/
+    - {{ pin_subpackage('krb5', max_pin='x.x') }}
+  ignore_run_exports:
+    # C++ and Tcl are only needed for performing built-in unit tests.
+    - libcxx          # [osx]
+    - libstdcxx-ng    # [linux]
+    - tk
+  missing_dso_whitelist:          # [osx]
+    - /usr/lib/libresolv.9.dylib  # [osx]
+
+requirements:
+  build:
+    - {{ stdlib('c') }}
+    - {{ compiler('c') }}
+    - {{ compiler('cxx') }}
+    - bison       # [not win]
+    - autoconf    # [not win]
+    - posix       # [win]
+    - perl        # [win]
+    - pkg-config  # [unix]
+    - make        # [unix]
+  host:
+    - libedit 3.1.20221030  # [unix]
+    - openssl {{ openssl }}
+    - tk 8.6.12
+  run:
+    - {{ pin_compatible('libedit') }}  # [unix]
+
+test:
+  requires:
+    - python 3.11
+
+about:
+  home: https://web.mit.edu/kerberos/
+  license: MIT
+  license_family: MIT
+  license_file: doc/notice.rst
+  summary: A network authentication protocol.
+  description: |
+    Kerberos is a network authentication protocol. It is designed to provide strong authentication for client/server applications by using secret-key cryptography. 
+  doc_url: https://web.mit.edu/kerberos/krb5-1.21/doc/index.html
+  dev_url: https://github.com/krb5/krb5
+
+extra:
+  recipe-maintainers:
+    - pelson
+    - ocefpaf
+    - mingwandroid
+    - mariusvniekerk
+    - chenghlee
