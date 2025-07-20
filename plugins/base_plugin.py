@@ -13,7 +13,17 @@ Architecture principles:
 
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
+from dataclasses import dataclass
 import logging
+
+
+@dataclass
+class PluginRequirements:
+    """Resource requirements for a plugin."""
+    gpu_memory_mb: int = 0
+    cpu_cores: int = 1
+    ram_mb: int = 128
+    processing_time_estimate: float = 1.0
 
 
 class BasePlugin(ABC):

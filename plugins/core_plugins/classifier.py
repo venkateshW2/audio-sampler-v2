@@ -13,12 +13,27 @@ Architecture principles:
 
 import logging
 import numpy as np
+import time
 from typing import Dict, Any, List, Optional, Tuple
 from pathlib import Path
 import torch
 import torch.nn.functional as F
 
 from ..base_plugin import BasePlugin, PluginRequirements
+
+# Import AudioSet class mapping
+try:
+    import sys
+    from pathlib import Path
+    # Add project root to path to import audioset mapping
+    project_root = Path(__file__).parent.parent.parent
+    sys.path.insert(0, str(project_root))
+    from audioset_class_mapping import AUDIOSET_CLASS_MAPPING, SPEECH_RELATED_INDICES, MUSIC_RELATED_INDICES
+except ImportError:
+    # Fallback to basic mapping if file not found
+    AUDIOSET_CLASS_MAPPING = {i: f"AudioSet_Class_{i}" for i in range(527)}
+    SPEECH_RELATED_INDICES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 13]  # Basic speech indices
+    MUSIC_RELATED_INDICES = [137, 138, 139, 140, 141, 142]  # Basic music indices
 
 logger = logging.getLogger(__name__)
 
@@ -36,15 +51,23 @@ class ClassifierPlugin(BasePlugin):
     """
     
     def __init__(self):
-        super().__init__()
         self.plugin_name = "classifier"
         self.version = "2.0.0-passt-gtx1060"
+        super().__init__()
         self._passt_model = None
         self._fallback_model = None
         self._model_loaded = False
         self._device = None
         self._use_fallback = False
         
+    def get_name(self) -> str:
+        """Return plugin name."""
+        return self.plugin_name
+    
+    def get_version(self) -> str:
+        """Return plugin version."""
+        return self.version
+    
     def get_requirements(self) -> PluginRequirements:
         """Return resource requirements optimized for GTX 1060."""
         return PluginRequirements(
@@ -119,26 +142,20 @@ class ClassifierPlugin(BasePlugin):
             from hear21passt.base import get_basic_model
             from hear21passt.base import get_model_passt
             
-            # Use smaller PaSST model for GTX 1060
-            # passt_s is the small version, more suitable for 6GB GPU
-            model_name = "passt_s_swa_p16_s16_128_ap473"
-            
-            logger.info(f"Loading PaSST model: {model_name}")
+            # Use default PaSST model (already optimized)
+            logger.info("Loading PaSST model: default (passt_s_swa_p16_s16_128_ap473)")
             
             # Load model with reduced precision for GTX 1060
-            self._passt_model = get_basic_model(mode="logits", arch=model_name)
+            self._passt_model = get_basic_model(mode="logits")
             self._passt_model.to(self._device)
             
-            # Enable mixed precision for GTX 1060
-            if self._device.type == 'cuda':
-                self._passt_model.half()  # Use FP16 to save VRAM
+            # Keep model in FP32 for stability (GTX 1060 has sufficient VRAM for PaSST)
+            # FP16 causes type mismatches in PaSST preprocessing pipeline
             
             self._passt_model.eval()
             
-            # Test with dummy input to ensure it works
-            dummy_input = torch.randn(1, 1, 128, 998).to(self._device)
-            if self._device.type == 'cuda':
-                dummy_input = dummy_input.half()
+            # Test with dummy input to ensure it works (5 seconds of 32kHz audio)
+            dummy_input = torch.randn(1, 32000 * 5).to(self._device).float()
                 
             with torch.no_grad():
                 _ = self._passt_model(dummy_input)
@@ -223,6 +240,8 @@ class ClassifierPlugin(BasePlugin):
         
         Returns comprehensive classification with confidence scores.
         """
+        start_time = time.time()
+        
         try:
             # Load model if needed
             if not self._load_classification_model():
@@ -262,6 +281,9 @@ class ClassifierPlugin(BasePlugin):
                 classification_results, self._use_fallback
             )
             
+            # Add timing information
+            processing_time = time.time() - start_time
+            
             result = {
                 'success': True,
                 'classifications': processed_results['labels'],
@@ -272,24 +294,29 @@ class ClassifierPlugin(BasePlugin):
                 'speech_probability': processed_results['speech_prob'],
                 'genre_predictions': processed_results['genres'],
                 'instrument_predictions': processed_results['instruments'],
+                'processing_time_ms': int(processing_time * 1000),
                 'analysis_metadata': {
                     'method': 'PaSST' if not self._use_fallback else 'Lightweight-CNN',
                     'model_device': str(self._device),
                     'audio_duration': len(audio_data) / sample_rate,
                     'processed_duration': len(audio_chunk) / sample_rate,
                     'sample_rate': sample_rate,
-                    'used_fallback': self._use_fallback
+                    'used_fallback': self._use_fallback,
+                    'processing_time_seconds': processing_time
                 }
             }
             
             logger.info(f"✅ Classification: {processed_results['top_label']} "
-                       f"({processed_results['top_score']:.2f} confidence)")
+                       f"({processed_results['top_score']:.3f} confidence, {processing_time:.2f}s)")
             
             return result
             
         except Exception as e:
+            processing_time = time.time() - start_time
             logger.error(f"Classification error: {e}")
-            return self._error_result(f"Classification failed: {str(e)}")
+            result = self._error_result(f"Classification failed: {str(e)}")
+            result['processing_time_ms'] = int(processing_time * 1000)
+            return result
     
     def _simple_resample(self, audio: np.ndarray, orig_sr: int, target_sr: int) -> np.ndarray:
         """Simple resampling without librosa dependency."""
@@ -312,18 +339,16 @@ class ClassifierPlugin(BasePlugin):
         """Classify using PaSST model."""
         try:
             with torch.no_grad():
-                # Convert to spectrogram (PaSST expects mel-spectrograms)
-                spectrogram = self._audio_to_spectrogram(audio_data, sample_rate)
+                # PaSST expects raw audio waveform, not spectrograms
+                # Shape: [batch_size, num_samples] where audio is at 32kHz
+                audio_tensor = torch.from_numpy(audio_data).unsqueeze(0).float()  # [1, num_samples]
+                audio_tensor = audio_tensor.to(self._device)
                 
-                # Convert to tensor
-                spec_tensor = torch.from_numpy(spectrogram).unsqueeze(0).unsqueeze(0)
-                spec_tensor = spec_tensor.to(self._device)
+                # Keep in FP32 for stability
+                audio_tensor = audio_tensor.float()
                 
-                if self._device.type == 'cuda':
-                    spec_tensor = spec_tensor.half()
-                
-                # Get predictions
-                logits = self._passt_model(spec_tensor)
+                # Get predictions - PaSST handles spectrogram conversion internally
+                logits = self._passt_model(audio_tensor)
                 probabilities = F.softmax(logits, dim=-1)
                 
                 return {
@@ -415,7 +440,6 @@ class ClassifierPlugin(BasePlugin):
         try:
             probabilities = raw_results['probabilities'][0]  # Remove batch dimension
             
-            # AudioSet class labels (simplified mapping)
             if is_fallback:
                 # Simple labels for fallback model
                 basic_labels = [
@@ -423,25 +447,33 @@ class ClassifierPlugin(BasePlugin):
                     'Electronic', 'Acoustic', 'Noise', 'Silence', 'Animal', 'Vehicle', 'Water',
                     'Fire', 'Glass', 'Metal', 'Wood', 'Synthetic', 'Natural'
                 ] + [f'Class_{i}' for i in range(507)]  # Pad to 527
+                
+                # Create label-score pairs and sort
+                label_scores = list(zip(basic_labels, probabilities))
+                label_scores.sort(key=lambda x: x[1], reverse=True)
+                
+                # Calculate probabilities using keyword matching for fallback
+                music_prob = self._get_probability_for_category(label_scores, ['Music', 'Electronic', 'Acoustic'])
+                speech_prob = self._get_probability_for_category(label_scores, ['Speech', 'Vocal'])
+                
             else:
-                # Full AudioSet labels (would load from actual mapping)
-                basic_labels = [f'AudioSet_Class_{i}' for i in range(len(probabilities))]
-            
-            # Ensure matching lengths
-            min_len = min(len(probabilities), len(basic_labels))
-            probabilities = probabilities[:min_len]
-            basic_labels = basic_labels[:min_len]
-            
-            # Create label-score pairs and sort
-            label_scores = list(zip(basic_labels, probabilities))
-            label_scores.sort(key=lambda x: x[1], reverse=True)
+                # Use proper AudioSet labels and index-based probability calculation
+                # Create index-probability pairs
+                index_prob_pairs = list(enumerate(probabilities))
+                index_prob_pairs.sort(key=lambda x: x[1], reverse=True)
+                
+                # Convert to label-score pairs using proper AudioSet mapping
+                label_scores = []
+                for idx, prob in index_prob_pairs:
+                    label = AUDIOSET_CLASS_MAPPING.get(idx, f'AudioSet_Class_{idx}')
+                    label_scores.append((label, prob))
+                
+                # Calculate probabilities using AudioSet indices (more accurate)
+                speech_prob = sum(probabilities[i] for i in SPEECH_RELATED_INDICES if i < len(probabilities))
+                music_prob = sum(probabilities[i] for i in MUSIC_RELATED_INDICES if i < len(probabilities))
             
             # Extract top prediction
             top_label, top_score = label_scores[0]
-            
-            # Calculate specific probabilities
-            music_prob = self._get_probability_for_category(label_scores, ['Music', 'Electronic', 'Acoustic'])
-            speech_prob = self._get_probability_for_category(label_scores, ['Speech', 'Vocal'])
             
             # Extract genres and instruments
             genres = self._extract_genre_predictions(label_scores)

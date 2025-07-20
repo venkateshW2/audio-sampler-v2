@@ -1,14 +1,15 @@
 """
 Audio Intelligence Sampler v2 - Core Engine
 
-This is the SACRED CORE ENGINE - NEVER MODIFY once stable.
+This is the SACRED CORE ENGINE with REGION-BASED PROCESSING.
 All audio processing flows through this orchestrator.
 
 Architecture principles:
 - Never throws exceptions 
 - Always returns results (partial if needed)
 - Manages plugin lifecycle safely
-- Handles all file I/O with fallbacks
+- Handles all file I/O with fallbacks + region detection
+- Processes each region independently through all plugins
 - Comprehensive logging at every step
 """
 
@@ -88,7 +89,7 @@ class AudioSamplerEngine:
     
     def process_file(self, file_path: Union[str, Path]) -> Dict[str, Any]:
         """
-        Process a single audio file through the complete pipeline.
+        Process a single audio file through region-based pipeline.
         
         This method NEVER raises exceptions. It always returns a result,
         even if partial or indicating failure.
@@ -97,45 +98,56 @@ class AudioSamplerEngine:
             file_path: Path to audio file to process
             
         Returns:
-            Dict containing processing results, metadata, and status
+            Dict containing file metadata, regions, and region analysis results
         """
         start_time = time.time()
         file_path = Path(file_path)
         
-        # Initialize result structure
+        # Initialize result structure (region-based)
         result = {
             'file_path': str(file_path),
             'timestamp': datetime.now().isoformat(),
             'success': False,
             'duration_seconds': 0,
-            'metadata': {},
-            'analysis': {},
+            'file_metadata': {},
+            'regions': [],
+            'region_analyses': [],
+            'total_regions': 0,
+            'successful_regions': 0,
+            'failed_regions': 0,
             'errors': [],
             'warnings': []
         }
         
-        self.logger.info(f"Processing file: {file_path}")
+        self.logger.info(f"Processing file with region detection: {file_path}")
         
         try:
-            # Phase 1: File validation and loading
-            file_result = self._load_file(file_path)
-            if not file_result['success']:
-                result['errors'].extend(file_result['errors'])
+            # Phase 1: File loading with region detection
+            region_result = self._load_file_with_regions(file_path)
+            if not region_result['success']:
+                result['errors'].extend(region_result['errors'])
                 result['duration_seconds'] = time.time() - start_time
                 return result
             
-            result['metadata'] = file_result['metadata']
-            audio_data = file_result['audio_data']
+            result['file_metadata'] = region_result['file_metadata']
+            result['regions'] = region_result['regions']
+            result['total_regions'] = region_result['total_regions']
             
-            # Phase 2: Core analysis pipeline
-            analysis_result = self._run_analysis_pipeline(audio_data, result['metadata'])
-            result['analysis'] = analysis_result['results']
-            result['errors'].extend(analysis_result['errors'])
-            result['warnings'].extend(analysis_result['warnings'])
+            # Phase 2: Process each region independently through all plugins
+            region_analyses = self._process_regions(region_result['regions'])
+            result['region_analyses'] = region_analyses['results']
+            result['successful_regions'] = region_analyses['successful_count']
+            result['failed_regions'] = region_analyses['failed_count']
+            result['errors'].extend(region_analyses['errors'])
+            result['warnings'].extend(region_analyses['warnings'])
             
-            # Phase 3: Success if we got here
-            result['success'] = True
-            self.logger.info(f"File processed successfully: {file_path}")
+            # Phase 3: Success if we processed at least one region
+            result['success'] = result['successful_regions'] > 0
+            
+            if result['success']:
+                self.logger.info(f"✅ File processed: {result['successful_regions']}/{result['total_regions']} regions successful")
+            else:
+                self.logger.warning(f"❌ File processing failed: 0/{result['total_regions']} regions successful")
             
         except Exception as e:
             # This should never happen, but if it does, we handle it gracefully
@@ -145,23 +157,24 @@ class AudioSamplerEngine:
         
         finally:
             result['duration_seconds'] = time.time() - start_time
-            self.logger.info(f"Processing completed in {result['duration_seconds']:.2f}s")
+            self.logger.info(f"Region-based processing completed in {result['duration_seconds']:.2f}s")
         
         return result
     
-    def _load_file(self, file_path: Path) -> Dict[str, Any]:
-        """Load audio file with comprehensive error handling.
+    def _load_file_with_regions(self, file_path: Path) -> Dict[str, Any]:
+        """Load audio file and extract regions with comprehensive error handling.
         
         Args:
             file_path: Path to audio file
             
         Returns:
-            Dict with success status, audio data, metadata, and errors
+            Dict with success status, file metadata, regions, and errors
         """
         result = {
             'success': False,
-            'audio_data': None,
-            'metadata': {},
+            'file_metadata': {},
+            'regions': [],
+            'total_regions': 0,
             'errors': []
         }
         
@@ -175,122 +188,172 @@ class AudioSamplerEngine:
                 result['errors'].append(f"Path is not a file: {file_path}")
                 return result
             
-            # Get basic file metadata
-            result['metadata'] = {
-                'filename': file_path.name,
-                'size_bytes': file_path.stat().st_size,
-                'extension': file_path.suffix.lower(),
-                'modified_time': datetime.fromtimestamp(file_path.stat().st_mtime).isoformat()
-            }
+            # Load audio with region detection using FileHandler
+            if not self.file_handler:
+                result['errors'].append("FileHandler not initialized")
+                return result
             
-            # Use file handler if available
-            if self.file_handler:
-                load_result = self.file_handler.load_audio(file_path)
-                if load_result['success']:
-                    result['audio_data'] = load_result['audio_data']
-                    result['metadata'].update(load_result['metadata'])
-                    result['success'] = True
-                else:
-                    result['errors'].extend(load_result['errors'])
-            else:
-                # Fallback: basic librosa loading
-                result = self._fallback_audio_loading(file_path, result)
+            # Use the new region-based loading
+            region_result = self.file_handler.load_audio_with_regions(file_path)
             
-        except Exception as e:
-            error_msg = f"File loading error: {e}"
-            self.logger.error(error_msg)
-            result['errors'].append(error_msg)
-        
-        return result
-    
-    def _fallback_audio_loading(self, file_path: Path, result: Dict) -> Dict:
-        """Fallback audio loading using librosa directly."""
-        try:
-            import librosa
-            import numpy as np
+            if not region_result['success']:
+                result['errors'].extend(region_result['errors'])
+                return result
             
-            self.logger.info("Using fallback librosa loading")
-            
-            # Load with librosa (safe defaults)
-            audio_data, sample_rate = librosa.load(
-                str(file_path), 
-                sr=22050,  # Standard sample rate for analysis
-                mono=True,  # Convert to mono
-                duration=None  # Load full file
-            )
-            
-            # Update metadata
-            result['metadata'].update({
-                'sample_rate': sample_rate,
-                'duration_seconds': len(audio_data) / sample_rate,
-                'channels': 1,  # mono
-                'loader': 'librosa_fallback'
-            })
-            
-            result['audio_data'] = audio_data
+            # Extract regions and metadata
+            result['file_metadata'] = region_result['file_metadata']
+            result['regions'] = region_result['regions']
+            result['total_regions'] = region_result['total_regions']
             result['success'] = True
             
+            self.logger.info(f"✅ Loaded {result['total_regions']} regions from {file_path.name}")
+            
         except Exception as e:
-            error_msg = f"Fallback loading failed: {e}"
+            error_msg = f"Region loading error: {e}"
             self.logger.error(error_msg)
             result['errors'].append(error_msg)
         
         return result
     
-    def _run_analysis_pipeline(self, audio_data, metadata: Dict) -> Dict[str, Any]:
-        """Run all registered plugins on the audio data.
+    def _process_regions(self, regions: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Process each region independently through all registered plugins.
         
         Args:
-            audio_data: Loaded audio data
-            metadata: File metadata
+            regions: List of region dictionaries with audio data and metadata
             
         Returns:
-            Dict with analysis results, errors, and warnings
+            Dict with region analysis results, counts, errors, and warnings
         """
-        pipeline_result = {
-            'results': {},
+        process_result = {
+            'results': [],
+            'successful_count': 0,
+            'failed_count': 0,
             'errors': [],
             'warnings': []
         }
         
         if not self.plugins:
-            pipeline_result['warnings'].append("No plugins registered")
-            return pipeline_result
+            process_result['warnings'].append("No plugins registered")
+            return process_result
         
-        self.logger.info(f"Running analysis pipeline with {len(self.plugins)} plugins")
+        if not regions:
+            process_result['warnings'].append("No regions to process")
+            return process_result
         
+        self.logger.info(f"Processing {len(regions)} regions through {len(self.plugins)} plugins")
+        
+        # Process each region independently
+        for region_idx, region in enumerate(regions):
+            region_id = region.get('region_id', f'region-{region_idx+1}')
+            
+            try:
+                self.logger.info(f"Processing region {region_id} ({region['duration']:.1f}s)")
+                
+                # Process this region through all plugins
+                region_analysis = self._process_single_region(region)
+                
+                # Add region analysis to results
+                process_result['results'].append(region_analysis)
+                
+                if region_analysis['success']:
+                    process_result['successful_count'] += 1
+                    self.logger.info(f"✅ Region {region_id} processed successfully")
+                else:
+                    process_result['failed_count'] += 1
+                    self.logger.warning(f"⚠️ Region {region_id} processing failed")
+                    process_result['errors'].extend(region_analysis['errors'])
+                
+            except Exception as e:
+                error_msg = f"Region {region_id} processing error: {e}"
+                self.logger.error(error_msg)
+                process_result['errors'].append(error_msg)
+                process_result['failed_count'] += 1
+        
+        total_regions = len(regions)
+        self.logger.info(f"Region processing complete: {process_result['successful_count']}/{total_regions} successful")
+        
+        return process_result
+    
+    def _process_single_region(self, region: Dict[str, Any]) -> Dict[str, Any]:
+        """Process a single region through all plugins."""
+        region_id = region.get('region_id', 'unknown')
+        audio_data = region.get('audio_data')
+        sample_rate = region.get('sample_rate', 22050)
+        
+        # Initialize region analysis result
+        region_analysis = {
+            'region_id': region_id,
+            'region_metadata': {
+                'start_time': region.get('start_time', 0.0),
+                'end_time': region.get('end_time', 0.0),
+                'duration': region.get('duration', 0.0),
+                'region_type': region.get('region_type', 'content'),
+                'parent_file': region.get('parent_file', 'unknown')
+            },
+            'plugin_results': {},
+            'success': False,
+            'successful_plugins': 0,
+            'failed_plugins': 0,
+            'errors': [],
+            'warnings': []
+        }
+        
+        if audio_data is None or len(audio_data) == 0:
+            region_analysis['errors'].append("No audio data in region")
+            return region_analysis
+        
+        # Get resource status for plugin capability checks
+        resource_status = self.resource_manager.get_resource_status() if self.resource_manager else {}
+        
+        # Process through each plugin
         for plugin in self.plugins:
             try:
                 plugin_name = getattr(plugin, 'get_name', lambda: 'Unknown')()
-                self.logger.info(f"Running plugin: {plugin_name}")
                 
-                # Check if plugin can process this file
-                can_process = getattr(plugin, 'can_process', lambda x: True)(metadata)
+                # Check if plugin can process this region
+                can_process, reason = getattr(plugin, 'can_process', lambda x, y, z: (True, "No check"))(
+                    audio_data, sample_rate, resource_status
+                )
+                
                 if not can_process:
-                    self.logger.info(f"Plugin {plugin_name} skipped (incompatible file)")
+                    region_analysis['warnings'].append(f"Plugin {plugin_name} skipped: {reason}")
                     continue
                 
-                # Run plugin analysis
+                # Run plugin analysis on region
                 plugin_start = time.time()
-                plugin_result = plugin.process(audio_data, metadata)
+                plugin_result = plugin.process(
+                    audio_data=audio_data,
+                    sample_rate=sample_rate,
+                    file_path=None,  # No file path for regions
+                    region_id=region_id,
+                    region_metadata=region_analysis['region_metadata']
+                )
                 plugin_duration = time.time() - plugin_start
                 
-                # Store results
-                pipeline_result['results'][plugin_name] = {
+                # Store plugin results
+                region_analysis['plugin_results'][plugin_name] = {
                     'data': plugin_result,
                     'processing_time': plugin_duration,
-                    'timestamp': datetime.now().isoformat()
+                    'timestamp': datetime.now().isoformat(),
+                    'success': plugin_result.get('success', False)
                 }
                 
-                self.logger.info(f"Plugin {plugin_name} completed in {plugin_duration:.2f}s")
+                if plugin_result.get('success', False):
+                    region_analysis['successful_plugins'] += 1
+                else:
+                    region_analysis['failed_plugins'] += 1
+                    if 'error' in plugin_result:
+                        region_analysis['errors'].append(f"Plugin {plugin_name}: {plugin_result['error']}")
                 
             except Exception as e:
-                error_msg = f"Plugin {getattr(plugin, 'get_name', lambda: 'Unknown')()} failed: {e}"
-                self.logger.error(error_msg)
-                pipeline_result['errors'].append(error_msg)
-                # Continue with other plugins
+                error_msg = f"Plugin {getattr(plugin, 'get_name', lambda: 'Unknown')()} error: {e}"
+                region_analysis['errors'].append(error_msg)
+                region_analysis['failed_plugins'] += 1
         
-        return pipeline_result
+        # Region is successful if at least one plugin succeeded
+        region_analysis['success'] = region_analysis['successful_plugins'] > 0
+        
+        return region_analysis
     
     def get_status(self) -> Dict[str, Any]:
         """Get current engine status and health information."""
