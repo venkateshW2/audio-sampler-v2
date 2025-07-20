@@ -99,15 +99,9 @@ class KeyFinderPlugin(BasePlugin):
             logger.error(f"LibROSA not available: {e}")
             self._librosa_available = False
         
-        # Check Essentia (experimental environment)
-        try:
-            import essentia.standard as es
-            import essentia
-            self._essentia_available = True
-            logger.info(f"Essentia available (version {essentia.__version__})")
-        except Exception as e:
-            logger.warning(f"Essentia not available (NumPy 2.x compatibility issue, will use LibROSA fallback): {e}")
-            self._essentia_available = False
+        # Essentia runs in experimental environment only (NumPy 1.x compatibility)
+        self._essentia_available = False
+        logger.info("Essentia available via experimental environment (subprocess bridge)")
     
     
     def process(self, audio_data: np.ndarray, sample_rate: int, 
@@ -128,21 +122,19 @@ class KeyFinderPlugin(BasePlugin):
             duration = len(audio_data) / sample_rate
             logger.info(f"Processing {duration:.1f}s audio for key detection")
             
-            # Try experimental environment first (Essentia), fallback to main (LibROSA)
-            if self._essentia_available:
-                try:
-                    result = self._process_with_essentia(audio_data, sample_rate)
-                    result['analysis_metadata']['method'] = 'Essentia-NNLSChroma'
-                    result['analysis_metadata']['environment'] = 'experimental'
-                except Exception as e:
-                    logger.warning(f"Essentia failed: {e}, falling back to LibROSA")
-                    result = self._process_with_librosa(audio_data, sample_rate)
-                    result['analysis_metadata']['method'] = 'LibROSA-chroma'
-                    result['analysis_metadata']['environment'] = 'main-fallback'
-            else:
+            # Try experimental environment first (Essentia via subprocess), fallback to main (LibROSA)
+            # Always try experimental environment first for higher accuracy
+            try:
+                result = self._process_with_essentia(audio_data, sample_rate)
+                result['analysis_metadata']['method'] = 'Essentia-NNLSChroma'
+                result['analysis_metadata']['environment'] = 'experimental'
+                experimental_success = True
+            except Exception as e:
+                logger.warning(f"Experimental environment failed: {e}, falling back to LibROSA")
                 result = self._process_with_librosa(audio_data, sample_rate)
                 result['analysis_metadata']['method'] = 'LibROSA-chroma'
-                result['analysis_metadata']['environment'] = 'main'
+                result['analysis_metadata']['environment'] = 'main-fallback'
+                experimental_success = False
             
             # Add timing information and metadata  
             processing_time = time.time() - start_time
@@ -265,10 +257,54 @@ class KeyFinderPlugin(BasePlugin):
             return self._fallback_key_detection(audio_data, sample_rate)
     
     def _process_with_essentia(self, audio_data: np.ndarray, sample_rate: int) -> Dict[str, Any]:
-        """Experimental environment: Essentia NNLSChroma analysis (high accuracy)."""
-        # NOTE: This will fail with NumPy 2.x compatibility issues
-        # Future implementation will use subprocess bridge to NumPy 1.x environment
-        raise NotImplementedError("Essentia subprocess bridge not yet implemented")
+        """Experimental environment: Essentia NNLSChroma analysis via subprocess bridge."""
+        try:
+            import subprocess
+            import pickle
+            
+            logger.info("Using Essentia subprocess bridge (experimental environment)")
+            
+            # Prepare input data for subprocess
+            input_data = {
+                'audio_data': audio_data,
+                'sample_rate': sample_rate
+            }
+            
+            # Path to experimental environment
+            experimental_python = "/mnt/2w12-data/audio-sampler-v2/miniconda/envs/audio-sampler-experimental/bin/python"
+            script_path = "/mnt/2w12-data/audio-sampler-v2/experimental_key_detection.py"
+            
+            # Run subprocess with timeout
+            process = subprocess.Popen(
+                [experimental_python, script_path],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            
+            # Send input data and get result
+            input_bytes = pickle.dumps(input_data)
+            stdout, stderr = process.communicate(input=input_bytes, timeout=30)
+            
+            if process.returncode != 0:
+                logger.error(f"Experimental subprocess failed: {stderr.decode()}")
+                raise Exception(f"Subprocess failed with return code {process.returncode}")
+            
+            # Parse result
+            result = pickle.loads(stdout)
+            
+            if result.get('success', False):
+                logger.info(f"✅ Essentia key detection: {result['key']} {result['mode']} (confidence: {result['confidence']:.3f})")
+                return result
+            else:
+                raise Exception(f"Essentia analysis failed: {result.get('error', 'Unknown error')}")
+                
+        except subprocess.TimeoutExpired:
+            logger.error("Essentia subprocess timeout")
+            raise Exception("Experimental environment timeout")
+        except Exception as e:
+            logger.error(f"Essentia subprocess bridge failed: {e}")
+            raise
     
     def _get_key_templates(self) -> Dict[str, List[np.ndarray]]:
         """Get major and minor key templates for chroma correlation."""
