@@ -70,11 +70,24 @@ async def startup_event():
                 'target_sample_rate': 22050,
                 'force_mono': True,
                 'normalize_audio': True
+            },
+            'database': {
+                'path': 'audio_sampler.db'  # Enable database integration
             }
         }
         
         engine = AudioSamplerEngine(config)
-        logger.info("Audio sampler engine initialized successfully")
+        
+        # Register core plugins
+        from plugins.core_plugins.classifier import ClassifierPlugin
+        from plugins.core_plugins.tempo_meter_detector import TempoMeterDetectorPlugin  
+        from plugins.core_plugins.key_finder import KeyFinderPlugin
+        
+        engine.register_plugin(ClassifierPlugin())
+        engine.register_plugin(TempoMeterDetectorPlugin())
+        engine.register_plugin(KeyFinderPlugin())
+        
+        logger.info("Audio sampler engine initialized successfully with all core plugins")
         
     except Exception as e:
         logger.error(f"Engine initialization failed: {e}")
@@ -227,11 +240,67 @@ async def get_plugins():
         raise HTTPException(status_code=500, detail="Plugins info unavailable")
 
 
+@app.get("/database/files")
+async def search_files(query: str = "", status: str = None, limit: int = 100, offset: int = 0):
+    """Search files in database with pagination."""
+    global engine
+    
+    if not engine or not engine.db_integration:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    try:
+        return engine.db_integration.search_files(query, status, limit, offset)
+    except Exception as e:
+        logger.error(f"Database search error: {e}")
+        raise HTTPException(status_code=500, detail="Database search failed")
+
+
+@app.get("/database/files/{file_path:path}")
+async def get_file_results(file_path: str):
+    """Get analysis results for a specific file."""
+    global engine
+    
+    if not engine or not engine.db_integration:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    try:
+        results = engine.db_integration.get_file_results(file_path)
+        if not results:
+            raise HTTPException(status_code=404, detail="File not found in database")
+        return results
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Database file lookup error: {e}")
+        raise HTTPException(status_code=500, detail="Database lookup failed")
+
+
+@app.get("/database/stats")
+async def get_database_stats():
+    """Get database statistics."""
+    global engine
+    
+    if not engine or not engine.db_integration:
+        raise HTTPException(status_code=503, detail="Database not available")
+    
+    try:
+        return engine.db_integration.get_stats()
+    except Exception as e:
+        logger.error(f"Database stats error: {e}")
+        raise HTTPException(status_code=500, detail="Database stats unavailable")
+
+
+# Include additional API routes
+from api.server import router as api_router
+app.include_router(api_router, prefix="/api", tags=["extended"])
+
 # Mount static files for basic UI (Phase 1)
 ui_path = Path(__file__).parent / "ui"
 if ui_path.exists():
     app.mount("/ui", StaticFiles(directory=str(ui_path), html=True), name="ui")
     logger.info(f"UI mounted at /ui from {ui_path}")
+else:
+    logger.warning(f"UI directory not found at {ui_path}")
 
 
 def main():

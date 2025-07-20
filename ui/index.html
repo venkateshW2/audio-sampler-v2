@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Intelligence Sampler v2</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎵 Audio Intelligence Sampler v2</h1>
+            <p class="subtitle">Professional Audio Analysis Tool - Phase 1</p>
+            <div class="status-indicator" id="statusIndicator">
+                <span class="status-dot"></span>
+                <span id="statusText">Checking system status...</span>
+            </div>
+        </header>
+
+        <main>
+            <!-- System Status Section -->
+            <section class="panel">
+                <h2>System Status</h2>
+                <div class="status-grid">
+                    <div class="status-item">
+                        <label>Engine:</label>
+                        <span id="engineStatus">Loading...</span>
+                    </div>
+                    <div class="status-item">
+                        <label>Plugins:</label>
+                        <span id="pluginStatus">Loading...</span>
+                    </div>
+                    <div class="status-item">
+                        <label>Database:</label>
+                        <span id="databaseStatus">Loading...</span>
+                    </div>
+                    <div class="status-item">
+                        <label>GPU:</label>
+                        <span id="gpuStatus">Loading...</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- File Analysis Section -->
+            <section class="panel">
+                <h2>Analyze Audio File</h2>
+                
+                <div class="upload-section">
+                    <div class="upload-area" id="uploadArea">
+                        <div class="upload-content">
+                            <div class="upload-icon">📁</div>
+                            <p>Drop audio files here or click to browse</p>
+                            <p class="upload-hint">Supports: .wav, .mp3, .flac, .m4a</p>
+                        </div>
+                        <input type="file" id="fileInput" accept="audio/*" style="display: none;">
+                    </div>
+                    
+                    <div class="path-input">
+                        <label for="filePath">Or enter file path:</label>
+                        <div class="input-group">
+                            <input type="text" id="filePath" placeholder="e.g., /path/to/audio/file.wav">
+                            <button id="analyzePathBtn">Analyze</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="progress-section" id="progressSection" style="display: none;">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                    <p id="progressText">Processing...</p>
+                </div>
+            </section>
+
+            <!-- Results Section -->
+            <section class="panel" id="resultsPanel" style="display: none;">
+                <h2>Analysis Results</h2>
+                <div id="resultsContent"></div>
+            </section>
+
+            <!-- Database Browser Section -->
+            <section class="panel">
+                <h2>Database Browser</h2>
+                
+                <div class="search-section">
+                    <div class="input-group">
+                        <input type="text" id="searchQuery" placeholder="Search files...">
+                        <button id="searchBtn">Search</button>
+                    </div>
+                </div>
+
+                <div class="database-stats" id="databaseStats">
+                    <p>Loading database statistics...</p>
+                </div>
+
+                <div class="files-list" id="filesList">
+                    <p>Enter search query or leave empty to see all files</p>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>Audio Intelligence Sampler v2 - Phase 1: Core Backend Development</p>
+            <p><a href="/docs" target="_blank">API Documentation</a> | <a href="/health" target="_blank">Health Check</a></p>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
