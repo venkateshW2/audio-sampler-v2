@@ -51,13 +51,23 @@ async def analyze_uploaded_file(file: UploadFile = File(...)):
         
         try:
             # Import engine here to avoid circular imports
-            from main import engine
+            try:
+                from main import engine
+            except ImportError as import_err:
+                logger.error(f"Failed to import engine: {import_err}")
+                raise HTTPException(status_code=503, detail="Engine module not available")
             
             if not engine:
-                raise HTTPException(status_code=503, detail="Engine not available")
+                logger.error("Engine is None - server may not be fully initialized")
+                raise HTTPException(status_code=503, detail="Engine not initialized")
+            
+            logger.info(f"Processing uploaded file: {file.filename} ({len(content)} bytes)")
             
             # Process the temporary file
             result = engine.process_file(tmp_path)
+            
+            if not result:
+                raise HTTPException(status_code=500, detail="Engine returned empty result")
             
             # Add upload metadata
             result['upload_metadata'] = {
@@ -65,6 +75,8 @@ async def analyze_uploaded_file(file: UploadFile = File(...)):
                 'content_type': file.content_type,
                 'file_size': len(content)
             }
+            
+            logger.info(f"Upload analysis completed successfully for {file.filename}")
             
             return {
                 "analysis_result": result,
@@ -104,9 +116,16 @@ async def analyze_batch(file_paths: List[str]):
 async def get_system_resources():
     """Get current system resource status."""
     try:
-        from main import engine
+        try:
+            from main import engine
+        except ImportError as import_err:
+            logger.error(f"Failed to import engine: {import_err}")
+            raise HTTPException(status_code=503, detail="Engine module not available")
         
-        if not engine or not engine.resource_manager:
+        if not engine:
+            raise HTTPException(status_code=503, detail="Engine not initialized")
+        
+        if not engine.resource_manager:
             raise HTTPException(status_code=503, detail="Resource manager not available")
         
         resource_status = engine.resource_manager.get_resource_status()
@@ -127,9 +146,16 @@ async def get_system_resources():
 async def cleanup_resources():
     """Trigger system resource cleanup."""
     try:
-        from main import engine
+        try:
+            from main import engine
+        except ImportError as import_err:
+            logger.error(f"Failed to import engine: {import_err}")
+            raise HTTPException(status_code=503, detail="Engine module not available")
         
-        if not engine or not engine.resource_manager:
+        if not engine:
+            raise HTTPException(status_code=503, detail="Engine not initialized")
+        
+        if not engine.resource_manager:
             raise HTTPException(status_code=503, detail="Resource manager not available")
         
         # Force cleanup

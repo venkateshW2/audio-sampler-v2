@@ -170,7 +170,18 @@ class AudioSamplerUI {
                 body: formData
             });
 
-            const result = await response.json();
+            // Check if response is JSON
+            const contentType = response.headers.get('content-type');
+            let result;
+            
+            if (contentType && contentType.includes('application/json')) {
+                result = await response.json();
+            } else {
+                // If not JSON, get text response (likely an error page)
+                const textResponse = await response.text();
+                console.error('Non-JSON response:', textResponse);
+                throw new Error(`Server returned non-JSON response (${response.status})`);
+            }
 
             if (response.ok) {
                 this.hideProgress();
@@ -178,10 +189,11 @@ class AudioSamplerUI {
                 await this.loadDatabaseStats(); // Refresh stats
             } else {
                 this.hideProgress();
-                this.showError(result.detail || 'Upload failed');
+                this.showError(result.detail || `Upload failed with status ${response.status}`);
             }
         } catch (error) {
             this.hideProgress();
+            console.error('Upload error details:', error);
             this.showError(`Upload error: ${error.message}`);
         }
     }
@@ -205,7 +217,18 @@ class AudioSamplerUI {
                 body: JSON.stringify({ file_path: filePath })
             });
 
-            const result = await response.json();
+            // Check if response is JSON
+            const contentType = response.headers.get('content-type');
+            let result;
+            
+            if (contentType && contentType.includes('application/json')) {
+                result = await response.json();
+            } else {
+                // If not JSON, get text response (likely an error page)
+                const textResponse = await response.text();
+                console.error('Non-JSON response:', textResponse);
+                throw new Error(`Server returned non-JSON response (${response.status})`);
+            }
 
             if (response.ok) {
                 this.hideProgress();
@@ -213,10 +236,11 @@ class AudioSamplerUI {
                 await this.loadDatabaseStats(); // Refresh stats
             } else {
                 this.hideProgress();
-                this.showError(result.detail || 'Analysis failed');
+                this.showError(result.detail || `Analysis failed with status ${response.status}`);
             }
         } catch (error) {
             this.hideProgress();
+            console.error('Analysis error details:', error);
             this.showError(`Analysis error: ${error.message}`);
         }
     }
