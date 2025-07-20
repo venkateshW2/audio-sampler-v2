@@ -20,6 +20,12 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional, Union
 from datetime import datetime
 
+# Import database integration
+try:
+    from database import DatabaseIntegration
+except ImportError:
+    DatabaseIntegration = None
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -46,6 +52,7 @@ class AudioSamplerEngine:
         self.plugins = []
         self.resource_manager = None
         self.file_handler = None
+        self.db_integration = None
         self.start_time = datetime.now()
         
         self.logger.info("AudioSamplerEngine initializing...")
@@ -66,6 +73,14 @@ class AudioSamplerEngine:
             
             self.resource_manager = ResourceManager(self.config.get('resources', {}))
             self.file_handler = FileHandler(self.config.get('file_handling', {}))
+            
+            # Initialize database integration if available
+            if DatabaseIntegration:
+                db_path = self.config.get('database', {}).get('path', 'audio_sampler.db')
+                self.db_integration = DatabaseIntegration(db_path)
+                self.logger.info("Database integration initialized")
+            else:
+                self.logger.warning("Database integration not available")
             
             self.logger.info("Core components initialized")
         except ImportError as e:
@@ -143,6 +158,15 @@ class AudioSamplerEngine:
             
             # Phase 3: Success if we processed at least one region
             result['success'] = result['successful_regions'] > 0
+            
+            # Phase 4: Store results in database if integration is available
+            if self.db_integration and result['success']:
+                try:
+                    self._store_results_in_database(file_path, result)
+                except Exception as e:
+                    error_msg = f"Database storage failed: {e}"
+                    self.logger.warning(error_msg)
+                    result['warnings'].append(error_msg)
             
             if result['success']:
                 self.logger.info(f"✅ File processed: {result['successful_regions']}/{result['total_regions']} regions successful")
@@ -367,12 +391,80 @@ class AudioSamplerEngine:
             'plugin_names': [getattr(p, 'get_name', lambda: 'Unknown')() for p in self.plugins],
             'components': {
                 'resource_manager': self.resource_manager is not None,
-                'file_handler': self.file_handler is not None
+                'file_handler': self.file_handler is not None,
+                'database_integration': self.db_integration is not None
             },
             'timestamp': datetime.now().isoformat()
         }
         
         return status
+    
+    def _store_results_in_database(self, file_path: Path, result: Dict[str, Any]):
+        """Store analysis results in database using DatabaseIntegration."""
+        if not self.db_integration:
+            return
+        
+        try:
+            # Extract and map file metadata to database format
+            engine_metadata = result.get('file_metadata', {})
+            
+            # Map engine metadata fields to database model fields
+            file_metadata = {
+                'size_bytes': engine_metadata.get('size_bytes'),
+                'duration_seconds': engine_metadata.get('final_duration', engine_metadata.get('original_duration')),
+                'sample_rate': engine_metadata.get('final_sample_rate', engine_metadata.get('original_sample_rate')),
+                'channels': engine_metadata.get('original_channels'),
+                'format': engine_metadata.get('extension', '').replace('.', '') if engine_metadata.get('extension') else None
+            }
+            
+            # Remove None values
+            file_metadata = {k: v for k, v in file_metadata.items() if v is not None}
+            
+            # Convert regions to database format
+            regions_data = []
+            for region in result.get('regions', []):
+                regions_data.append({
+                    'region_id': region['region_id'],
+                    'region_number': region['region_number'],
+                    'start_time': region['start_time'],
+                    'end_time': region['end_time'],
+                    'duration': region['duration'],
+                    'region_type': region.get('region_type', 'content')
+                })
+            
+            # Convert analysis results to database format
+            analysis_results = {}
+            for region_analysis in result.get('region_analyses', []):
+                region_id = region_analysis['region_id']
+                if region_id not in analysis_results:
+                    analysis_results[region_id] = {}
+                
+                # Store each plugin result with proper data structure
+                for plugin_name, plugin_result in region_analysis['plugin_results'].items():
+                    # Extract the actual plugin data and metadata
+                    plugin_data = plugin_result.get('data', {})
+                    processing_time = plugin_result.get('processing_time', 0) * 1000  # Convert to ms
+                    
+                    # Create the database format with processing_time_ms and analysis_metadata
+                    analysis_results[region_id][plugin_name] = {
+                        **plugin_data,  # All the plugin results
+                        'processing_time_ms': int(processing_time),
+                        'analysis_metadata': plugin_data.get('analysis_metadata', {})
+                    }
+            
+            # Store in database
+            file_id = self.db_integration.store_file_analysis(
+                str(file_path),
+                file_metadata,
+                regions_data,
+                analysis_results
+            )
+            
+            self.logger.info(f"✅ Stored analysis results in database (File ID: {file_id})")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to store results in database: {e}")
+            raise
     
     def shutdown(self):
         """Gracefully shutdown the engine and cleanup resources."""
@@ -381,6 +473,8 @@ class AudioSamplerEngine:
         try:
             if self.resource_manager:
                 self.resource_manager.cleanup()
+            if self.db_integration:
+                self.db_integration.close()
         except Exception as e:
             self.logger.error(f"Error during shutdown: {e}")
         
