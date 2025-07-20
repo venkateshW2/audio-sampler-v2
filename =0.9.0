@@ -1,0 +1,2 @@
+Requirement already satisfied: pedalboard in ./miniconda/envs/audio-sampler-v2/lib/python3.9/site-packages (0.9.17)
+Requirement already satisfied: numpy in ./miniconda/envs/audio-sampler-v2/lib/python3.9/site-packages (from pedalboard) (2.0.2)
