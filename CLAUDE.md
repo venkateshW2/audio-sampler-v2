@@ -11,7 +11,107 @@
 
 ---
 
-## Current Session: July 20, 2025, 14:00-16:30 GMT
+## Current Session: July 21, 2025 - Architecture Planning
+
+### Phase Status: **PHASE 1 - CORE BACKEND** ✅ **JSON ISSUES RESOLVED, ARCHITECTURE REDESIGN PLANNED**
+
+### Session Summary
+**CRITICAL DISCOVERY: Classification Limitation & Architecture Redesign** - Successfully resolved JSON serialization issues and Swagger documentation problems. Discovered major limitation in classification approach: only analyzes first 10 seconds of regions, missing content transitions. Planned centralized feature extraction architecture to eliminate redundancy and enable smart timeline classification.
+
+### 🎯 **Primary Discoveries:**
+
+#### 1. **JSON Serialization Issues - RESOLVED** ✅
+- Fixed "Unexpected token" errors in API responses
+- Resolved Swagger UI "Maximum call stack size exceeded" errors
+- Implemented response data cleaning to handle large audio arrays
+
+#### 2. **Critical Classification Limitation Discovered** ⚠️
+- **Problem**: Classifier only analyzes first 10 seconds of any region
+- **Example**: Song with thunder intro → classified as "Thunder" (never hears the music)
+- **Impact**: Misses content transitions within regions
+
+#### 3. **Feature Extraction Redundancy Identified** ⚠️
+- Multiple plugins extracting same features (spectrograms, onsets, RMS)
+- TempoMeter: librosa onset detection + spectral analysis
+- KeyFinder: librosa chromagrams + spectral features  
+- Classifier: Custom spectrograms for PaSST
+- **Waste**: Same computations repeated across plugins
+
+### ✅ **Completed This Session:**
+
+- **Fixed Swagger UI errors**: Modified FastAPI config to prevent large response rendering
+- **Added response data cleaning**: Remove large audio arrays from API responses  
+- **Resolved JSON parsing**: All numpy objects properly serialized
+- **Tested upload endpoint**: Confirmed working with real audio files
+
+#### 2. **Classification Analysis Completed** ✅
+- **Identified 10-second limitation**: File `classifier.py:264-269`
+- **Mapped current feature usage**: 
+  - TempoMeter: `librosa.beat.beat_track()`, `librosa.onset.onset_detect()`, `librosa.stft()`
+  - KeyFinder: `librosa.feature.chroma_stft()`, Essentia NNLSChroma (subprocess)
+  - Classifier: PaSST custom spectrograms
+- **Confirmed redundancy**: Same spectral analysis repeated across plugins
+
+### 🚨 **MAJOR ARCHITECTURE CHANGE PLANNED**
+
+#### **Critical Issues Requiring Architectural Redesign:**
+
+1. **Smart Timeline Classification Needed**
+   - Current: Only first 10s of regions analyzed
+   - Required: Detect content changes within regions using onset/RMS/spectral analysis
+   - Use Case: TV commercial (dialogue → SFX → music) or field recording with multiple content types
+
+2. **Centralized Feature Extraction Required**  
+   - Current: Each plugin extracts features independently (wasteful)
+   - Required: Single feature extractor provides features to all plugins
+   - Challenge: Ensure nnAudio compatibility with madmom/librosa/essentia formats
+
+#### 📋 **ARCHITECTURE CHANGE TODO LIST - CRITICAL IMPLEMENTATION REQUIRED:**
+
+**PHASE 1: Analysis & Planning** 🔥 **HIGH PRIORITY**
+1. **🔥 CRITICAL**: Test nnAudio compatibility with current plugin requirements
+   - Install nnAudio in audio-sampler-v2 environment
+   - Test if nnAudio spectrograms work with madmom functions
+   - Test if nnAudio chromagrams work with essentia subprocess bridge
+   - Verify output format compatibility (numpy arrays, tensor formats)
+
+2. **🔥 CRITICAL**: Design centralized feature extraction architecture
+   - Create FeatureExtractorPlugin that runs first
+   - Define shared feature format (spectrograms, chromagrams, onsets, RMS timeline)
+   - Plan plugin dependency order: Region → FeatureExtractor → Classification/Tempo/Key
+   - Design feature caching mechanism (memory storage during processing)
+
+3. **🔥 CRITICAL**: Design smart content change detection for classification
+   - Algorithm to detect content transitions using onset density, RMS changes, spectral shifts
+   - Logic to classify only at change points within regions
+   - Timeline representation: "Region contains music + speech + SFX" instead of single classification
+
+**PHASE 2: Implementation** ⏳ **PENDING PHASE 1 COMPLETION**
+4. **Implementation**: Create FeatureExtractorPlugin with nnAudio integration
+5. **Modification**: Update ClassifierPlugin to use shared features + content change detection  
+6. **Modification**: Update TempoMeterPlugin to consume shared onset/spectral features
+7. **Modification**: Update KeyFinderPlugin to consume shared chromagram features
+8. **Integration**: Modify engine to handle plugin dependencies and feature passing
+9. **Testing**: Validate architecture change maintains accuracy while improving efficiency
+
+**PHASE 3: Validation** ⏳ **PENDING PHASES 1-2**
+10. **Performance Testing**: Measure processing time improvement from reduced feature extraction
+11. **Accuracy Testing**: Ensure smart timeline classification works better than 10s-only approach
+12. **Resource Testing**: Validate GPU memory usage optimization
+
+### 🔧 **Current System Status:**
+- **✅ JSON Issues Resolved**: Upload endpoint working, Swagger UI fixed
+- **✅ All Core Plugins Working**: Classification, Tempo/Meter, Key Detection (dual environment)
+- **✅ Sacred Architecture Maintained**: Region-based processing, plugin isolation
+- **⚠️ Classification Limitation**: Only first 10s analyzed, missing content transitions
+- **⚠️ Feature Extraction Waste**: Redundant computations across plugins
+
+### 🎯 **Next Session Priority:**
+**BEFORE ANY IMPLEMENTATION**: Complete architecture planning and compatibility testing as outlined in TODO list above. This architectural change will significantly improve both accuracy and performance.
+
+---
+
+## Previous Session: July 20, 2025, 14:00-16:30 GMT
 
 ### Phase Status: **PHASE 1 - CORE BACKEND** ✅ **DUAL ENVIRONMENT ARCHITECTURE IMPLEMENTED**
 

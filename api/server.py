@@ -12,25 +12,79 @@ Architecture principles:
 """
 
 from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi.responses import JSONResponse
 from typing import Dict, Any, List, Optional
+from pydantic import BaseModel
 import logging
 import tempfile
 import os
 from pathlib import Path
+from core.json_utils import safe_json_response
+
+# Response models for API documentation
+class AnalysisResponse(BaseModel):
+    message: str
+    success: bool
+    file_info: Dict[str, Any]
+    regions_processed: int
+    processing_time_seconds: float
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "message": "File uploaded and analyzed successfully",
+                "success": True,
+                "file_info": {
+                    "filename": "audio.wav",
+                    "duration": 27.3,
+                    "sample_rate": 22050
+                },
+                "regions_processed": 1,
+                "processing_time_seconds": 13.5
+            }
+        }
 
 logger = logging.getLogger(__name__)
+
+def clean_response_data(data):
+    """Remove large audio arrays from response data to prevent JSON size issues."""
+    if isinstance(data, dict):
+        cleaned = {}
+        for key, value in data.items():
+            if key == 'audio_data':
+                # Replace large audio data with summary
+                if isinstance(value, list):
+                    cleaned[key] = f"[Audio data array with {len(value)} samples - excluded from response]"
+                else:
+                    cleaned[key] = value
+            elif key == 'sample_count' and isinstance(value, int) and value > 1000:
+                # Keep sample count but don't include the actual samples
+                cleaned[key] = value
+            else:
+                cleaned[key] = clean_response_data(value)
+        return cleaned
+    elif isinstance(data, list):
+        # If it's a large array, summarize it
+        if len(data) > 1000 and all(isinstance(x, (int, float)) for x in data[:10]):
+            return f"[Large numeric array with {len(data)} elements - excluded from response]"
+        return [clean_response_data(item) for item in data]
+    else:
+        return data
 
 # Create API router
 router = APIRouter()
 
 
-@router.post("/analyze/upload")
+@router.post("/analyze/upload", response_model=None)
 async def analyze_uploaded_file(file: UploadFile = File(...)):
     """
     Analyze an uploaded audio file.
     
     For Phase 1, this provides basic file upload capability.
     File is saved temporarily and processed through the engine.
+    
+    Returns detailed analysis results including plugin outputs.
+    Note: Response may be large due to audio data arrays.
     """
     try:
         # Validate file type
@@ -78,10 +132,19 @@ async def analyze_uploaded_file(file: UploadFile = File(...)):
             
             logger.info(f"Upload analysis completed successfully for {file.filename}")
             
-            return {
-                "analysis_result": result,
+            # Clean response data to remove large audio arrays
+            cleaned_result = clean_response_data(result)
+            
+            # Use safe JSON response to handle numpy objects
+            response_data = {
+                "analysis_result": cleaned_result,
                 "message": "File uploaded and analyzed successfully"
             }
+            
+            # Convert to JSON-safe format
+            safe_data = safe_json_response(response_data)
+            
+            return JSONResponse(content=safe_data)
             
         finally:
             # Clean up temporary file
@@ -130,10 +193,13 @@ async def get_system_resources():
         
         resource_status = engine.resource_manager.get_resource_status()
         
-        return {
+        response_data = {
             "resources": resource_status,
             "recommendations": _get_resource_recommendations(resource_status)
         }
+        
+        safe_data = safe_json_response(response_data)
+        return JSONResponse(content=safe_data)
         
     except HTTPException:
         raise

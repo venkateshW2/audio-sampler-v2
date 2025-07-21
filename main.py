@@ -35,7 +35,10 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Audio Intelligence Sampler v2",
     description="Professional audio analysis tool with PyTorch-based processing",
-    version="2.0.0-phase1"
+    version="2.0.0-phase1",
+    # Disable automatic example generation to prevent Swagger UI issues with large responses
+    generate_unique_id_function=lambda route: f"{route.tags[0] if route.tags else 'default'}_{route.name}",
+    swagger_ui_parameters={"defaultModelsExpandDepth": 0, "defaultModelRendering": "model"}
 )
 
 # Enable CORS for browser access from Mac
