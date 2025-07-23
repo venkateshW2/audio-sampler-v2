@@ -234,15 +234,20 @@ class ClassifierPlugin(BasePlugin):
     
     def process(self, audio_data: np.ndarray, sample_rate: int, 
                file_path: Optional[Path] = None, 
+               feature_cache_id: Optional[str] = None,
                **kwargs) -> Dict[str, Any]:
         """
         Classify audio content using PaSST or fallback model.
+        Can use shared features from FeatureExtractor for improved performance.
         
         Returns comprehensive classification with confidence scores.
         """
         start_time = time.time()
         
         try:
+            # Check if ContentAnalysisPlugin has provided timeline segments
+            timeline_segments = self._get_timeline_segments(feature_cache_id)
+            
             # Load model if needed
             if not self._load_classification_model():
                 return self._error_result("Failed to load classification model")
@@ -260,54 +265,102 @@ class ClassifierPlugin(BasePlugin):
             
             logger.info(f"Processing {len(audio_data)/sample_rate:.1f}s audio for classification")
             
-            # Process audio chunk (optimize for GTX 1060)
-            chunk_duration = 10.0  # seconds
-            chunk_samples = int(chunk_duration * sample_rate)
-            
-            if len(audio_data) > chunk_samples:
-                # Process first 10 seconds for efficiency
-                audio_chunk = audio_data[:chunk_samples]
+            # NEW: Timeline-based classification using ContentAnalysisPlugin segments
+            if timeline_segments and len(timeline_segments) > 1:
+                # Multiple segments detected - classify each timeline segment
+                logger.info(f"Timeline classification: {len(timeline_segments)} segments detected")
+                processed_results = self._classify_timeline_segments(audio_data, sample_rate, timeline_segments)
             else:
-                audio_chunk = audio_data
-            
-            # Get classification results
-            if self._use_fallback:
-                classification_results = self._classify_with_fallback(audio_chunk, sample_rate)
-            else:
-                classification_results = self._classify_with_passt(audio_chunk, sample_rate)
-            
-            # Post-process results
-            processed_results = self._process_classification_results(
-                classification_results, self._use_fallback
-            )
+                # Fallback: Original method (first 10 seconds)
+                logger.info("No timeline segments found, using traditional 10-second classification")
+                chunk_duration = 10.0  # seconds
+                chunk_samples = int(chunk_duration * sample_rate)
+                
+                if len(audio_data) > chunk_samples:
+                    audio_chunk = audio_data[:chunk_samples]
+                else:
+                    audio_chunk = audio_data
+                
+                # Get classification results
+                if self._use_fallback:
+                    classification_results = self._classify_with_fallback(audio_chunk, sample_rate)
+                else:
+                    classification_results = self._classify_with_passt(audio_chunk, sample_rate)
+                
+                # Post-process results
+                processed_results = self._process_classification_results(
+                    classification_results, self._use_fallback
+                )
             
             # Add timing information
             processing_time = time.time() - start_time
             
-            result = {
-                'success': True,
-                'classifications': processed_results['labels'],
-                'confidence_scores': processed_results['scores'],
-                'top_prediction': processed_results['top_label'],
-                'top_confidence': processed_results['top_score'],
-                'music_probability': processed_results['music_prob'],
-                'speech_probability': processed_results['speech_prob'],
-                'genre_predictions': processed_results['genres'],
-                'instrument_predictions': processed_results['instruments'],
-                'processing_time_ms': int(processing_time * 1000),
-                'analysis_metadata': {
-                    'method': 'PaSST' if not self._use_fallback else 'Lightweight-CNN',
-                    'model_device': str(self._device),
-                    'audio_duration': len(audio_data) / sample_rate,
-                    'processed_duration': len(audio_chunk) / sample_rate,
-                    'sample_rate': sample_rate,
-                    'used_fallback': self._use_fallback,
-                    'processing_time_seconds': processing_time
+            # Handle timeline-based results vs traditional results
+            if 'timeline_classifications' in processed_results:
+                # Timeline-based classification results
+                # Add standard fields for UI compatibility
+                overall_pred = processed_results['overall_prediction']
+                result = {
+                    'success': True,
+                    'classification_method': 'timeline_based',
+                    # Standard fields for UI compatibility
+                    'top_prediction': str(overall_pred),
+                    'top_confidence': 1.0,  # Timeline classification confidence
+                    'classifications': [str(overall_pred)],
+                    'confidence_scores': [1.0],
+                    'music_probability': 1.0 if 'music' in str(overall_pred).lower() else 0.0,
+                    'speech_probability': 1.0 if 'speech' in str(overall_pred).lower() else 0.0,
+                    'genre_predictions': [],
+                    'instrument_predictions': [],
+                    # Timeline-specific fields
+                    'timeline_classifications': processed_results['timeline_classifications'],
+                    'segment_results': processed_results['segment_results'],
+                    'total_segments': processed_results['total_segments'],
+                    'overall_prediction': str(overall_pred),
+                    'content_timeline': processed_results['content_timeline'],
+                    'processing_time_ms': int(processing_time * 1000),
+                    'analysis_metadata': {
+                        'method': 'Timeline-PaSST' if not self._use_fallback else 'Timeline-Lightweight',
+                        'model_device': str(self._device),
+                        'audio_duration': len(audio_data) / sample_rate,
+                        'segments_classified': processed_results['total_segments'],
+                        'sample_rate': sample_rate,
+                        'used_fallback': self._use_fallback,
+                        'processing_source': 'timeline_classification',
+                        'processing_time_seconds': processing_time
+                    }
                 }
-            }
-            
-            logger.info(f"✅ Classification: {processed_results['top_label']} "
-                       f"({processed_results['top_score']:.3f} confidence, {processing_time:.2f}s)")
+                
+                logger.info(f"✅ Timeline Classification: {processed_results['total_segments']} segments, "
+                           f"overall: {processed_results['overall_prediction']} ({processing_time:.2f}s)")
+            else:
+                # Traditional classification results
+                result = {
+                    'success': True,
+                    'classification_method': 'traditional',
+                    'classifications': processed_results['labels'],
+                    'confidence_scores': processed_results['scores'],
+                    'top_prediction': processed_results['top_label'],
+                    'top_confidence': processed_results['top_score'],
+                    'music_probability': processed_results['music_prob'],
+                    'speech_probability': processed_results['speech_prob'],
+                    'genre_predictions': processed_results['genres'],
+                    'instrument_predictions': processed_results['instruments'],
+                    'processing_time_ms': int(processing_time * 1000),
+                    'analysis_metadata': {
+                        'method': 'PaSST' if not self._use_fallback else 'Lightweight-CNN',
+                        'model_device': str(self._device),
+                        'audio_duration': len(audio_data) / sample_rate,
+                        'processed_duration': len(audio_chunk) / sample_rate if 'audio_chunk' in locals() else len(audio_data) / sample_rate,
+                        'sample_rate': sample_rate,
+                        'used_fallback': self._use_fallback,
+                        'processing_source': 'direct_processing',
+                        'processing_time_seconds': processing_time
+                    }
+                }
+                
+                logger.info(f"✅ Classification: {processed_results['top_label']} "
+                           f"({processed_results['top_score']:.3f} confidence, {processing_time:.2f}s)")
             
             return result
             
@@ -335,6 +388,108 @@ class ClassifierPlugin(BasePlugin):
         
         return resampled
     
+    def _classify_with_shared_features(self, feature_cache_id: str, audio_data: np.ndarray, sample_rate: int) -> Optional[Dict[str, Any]]:
+        """Classify using shared features from FeatureExtractor."""
+        try:
+            # Import FeatureExtractor to access cached features
+            from .feature_extractor import FeatureExtractorPlugin
+            
+            # Get cached features
+            temp_fe = FeatureExtractorPlugin()
+            cached_features = temp_fe.get_cached_features(feature_cache_id)
+            
+            if not cached_features:
+                logger.warning(f"No cached features found for ID: {feature_cache_id}")
+                return None
+            
+            # Load model if needed
+            if not self._load_classification_model():
+                logger.error("Failed to load classification model for shared features")
+                return None
+            
+            # Try to use shared mel spectrogram
+            if not self._use_fallback and 'mel_spectrogram_torch' in cached_features:
+                # Use nnAudio mel spectrogram for PaSST
+                mel_spec = cached_features['mel_spectrogram_torch']
+                logger.info("Using shared nnAudio mel spectrogram for PaSST")
+                
+                with torch.no_grad():
+                    # PaSST expects mel spectrogram in specific format
+                    if isinstance(mel_spec, torch.Tensor):
+                        mel_tensor = mel_spec.to(self._device)
+                    else:
+                        mel_tensor = torch.from_numpy(mel_spec).to(self._device)
+                    
+                    # Ensure correct shape for PaSST
+                    if len(mel_tensor.shape) == 2:
+                        mel_tensor = mel_tensor.unsqueeze(0).unsqueeze(0)  # [1, 1, freq, time]
+                    elif len(mel_tensor.shape) == 3:
+                        mel_tensor = mel_tensor.unsqueeze(0)  # [1, freq, time]
+                    
+                    # Get predictions - use mel spectrogram directly
+                    logits = self._passt_model(mel_tensor)
+                    probabilities = torch.nn.functional.softmax(logits, dim=-1)
+                    
+                    classification_results = {
+                        'logits': logits.cpu().float().numpy(),
+                        'probabilities': probabilities.cpu().float().numpy()
+                    }
+            
+            elif self._use_fallback and 'spectrogram_librosa' in cached_features:
+                # Use librosa spectrogram for fallback model
+                spec = cached_features['spectrogram_librosa']
+                logger.info("Using shared librosa spectrogram for fallback model")
+                
+                with torch.no_grad():
+                    if isinstance(spec, torch.Tensor):
+                        spec_tensor = spec.unsqueeze(0).unsqueeze(0).to(self._device)
+                    else:
+                        spec_tensor = torch.from_numpy(spec).unsqueeze(0).unsqueeze(0).to(self._device)
+                    
+                    logits = self._fallback_model(spec_tensor)
+                    probabilities = torch.nn.functional.softmax(logits, dim=-1)
+                    
+                    classification_results = {
+                        'logits': logits.cpu().numpy(),
+                        'probabilities': probabilities.cpu().numpy()
+                    }
+            else:
+                logger.warning("No suitable shared features found for classification")
+                return None
+            
+            # Process results using existing method
+            processed_results = self._process_classification_results(
+                classification_results, self._use_fallback
+            )
+            
+            # Create result in same format as direct processing
+            result = {
+                'success': True,
+                'classifications': processed_results['labels'],
+                'confidence_scores': processed_results['scores'],
+                'top_prediction': processed_results['top_label'],
+                'top_confidence': processed_results['top_score'],
+                'music_probability': processed_results['music_prob'],
+                'speech_probability': processed_results['speech_prob'],
+                'genre_predictions': processed_results['genres'],
+                'instrument_predictions': processed_results['instruments'],
+                'analysis_metadata': {
+                    'method': 'PaSST-SharedFeatures' if not self._use_fallback else 'Fallback-SharedFeatures',
+                    'model_device': str(self._device),
+                    'audio_duration': len(audio_data) / sample_rate,
+                    'processed_duration': len(audio_data) / sample_rate,
+                    'sample_rate': sample_rate,
+                    'used_fallback': self._use_fallback,
+                    'feature_cache_used': feature_cache_id
+                }
+            }
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error using shared features: {e}")
+            return None
+    
     def _classify_with_passt(self, audio_data: np.ndarray, sample_rate: int) -> Dict[str, Any]:
         """Classify using PaSST model."""
         try:
@@ -358,7 +513,10 @@ class ClassifierPlugin(BasePlugin):
                 
         except Exception as e:
             logger.error(f"Error in PaSST classification: {e}")
-            return {'logits': np.zeros(527), 'probabilities': np.ones(527) / 527}
+            # Return consistent format with proper shape
+            dummy_logits = np.zeros((1, 527))
+            dummy_probs = np.ones((1, 527)) / 527
+            return {'logits': dummy_logits, 'probabilities': dummy_probs}
     
     def _classify_with_fallback(self, audio_data: np.ndarray, sample_rate: int) -> Dict[str, Any]:
         """Classify using lightweight fallback model."""
@@ -382,7 +540,10 @@ class ClassifierPlugin(BasePlugin):
                 
         except Exception as e:
             logger.error(f"Error in fallback classification: {e}")
-            return {'logits': np.zeros(527), 'probabilities': np.ones(527) / 527}
+            # Return consistent format with proper shape
+            dummy_logits = np.zeros((1, 527))
+            dummy_probs = np.ones((1, 527)) / 527
+            return {'logits': dummy_logits, 'probabilities': dummy_probs}
     
     def _audio_to_spectrogram(self, audio: np.ndarray, sample_rate: int, simple: bool = False) -> np.ndarray:
         """Convert audio to mel-spectrogram without librosa dependency."""
@@ -438,7 +599,16 @@ class ClassifierPlugin(BasePlugin):
                                        is_fallback: bool) -> Dict[str, Any]:
         """Process raw classification results into structured output."""
         try:
-            probabilities = raw_results['probabilities'][0]  # Remove batch dimension
+            # Handle both array and scalar probabilities
+            probs = raw_results.get('probabilities', np.array([]))
+            if isinstance(probs, (int, float, np.number)):
+                # Scalar result - create dummy probabilities
+                probabilities = np.ones(527) / 527  # Uniform distribution
+                logger.warning("Received scalar probability, using uniform distribution")
+            elif hasattr(probs, 'shape') and len(probs.shape) > 1:
+                probabilities = probs[0]  # Remove batch dimension
+            else:
+                probabilities = probs
             
             if is_fallback:
                 # Simple labels for fallback model
@@ -449,12 +619,12 @@ class ClassifierPlugin(BasePlugin):
                 ] + [f'Class_{i}' for i in range(507)]  # Pad to 527
                 
                 # Create label-score pairs and sort
-                label_scores = list(zip(basic_labels, probabilities))
+                label_scores = [(label, float(prob)) for label, prob in zip(basic_labels, probabilities)]
                 label_scores.sort(key=lambda x: x[1], reverse=True)
                 
                 # Calculate probabilities using keyword matching for fallback
-                music_prob = self._get_probability_for_category(label_scores, ['Music', 'Electronic', 'Acoustic'])
-                speech_prob = self._get_probability_for_category(label_scores, ['Speech', 'Vocal'])
+                music_prob = float(self._get_probability_for_category(label_scores, ['Music', 'Electronic', 'Acoustic']))
+                speech_prob = float(self._get_probability_for_category(label_scores, ['Speech', 'Vocal']))
                 
             else:
                 # Use proper AudioSet labels and index-based probability calculation
@@ -466,11 +636,11 @@ class ClassifierPlugin(BasePlugin):
                 label_scores = []
                 for idx, prob in index_prob_pairs:
                     label = AUDIOSET_CLASS_MAPPING.get(idx, f'AudioSet_Class_{idx}')
-                    label_scores.append((label, prob))
+                    label_scores.append((label, float(prob)))
                 
                 # Calculate probabilities using AudioSet indices (more accurate)
-                speech_prob = sum(probabilities[i] for i in SPEECH_RELATED_INDICES if i < len(probabilities))
-                music_prob = sum(probabilities[i] for i in MUSIC_RELATED_INDICES if i < len(probabilities))
+                speech_prob = float(sum(probabilities[i] for i in SPEECH_RELATED_INDICES if i < len(probabilities)))
+                music_prob = float(sum(probabilities[i] for i in MUSIC_RELATED_INDICES if i < len(probabilities)))
             
             # Extract top prediction
             top_label, top_score = label_scores[0]
@@ -537,6 +707,203 @@ class ClassifierPlugin(BasePlugin):
                     break
         
         return sorted(instruments, key=lambda x: x[1], reverse=True)[:3]
+    
+    def _get_timeline_segments(self, feature_cache_id: Optional[str]) -> List[Dict[str, Any]]:
+        """Get timeline segments from ContentAnalysisPlugin if available."""
+        if not feature_cache_id:
+            return []
+        
+        try:
+            # Check if ContentAnalysisPlugin results are cached
+            from .feature_extractor import FeatureExtractorPlugin
+            temp_fe = FeatureExtractorPlugin()
+            cached_features = temp_fe.get_cached_features(feature_cache_id)
+            
+            # Look for ContentAnalysisPlugin results in cache
+            # Note: This would be added by ContentAnalysisPlugin if it runs first
+            content_analysis_results = cached_features.get('content_analysis_results', {})
+            timeline_segments = content_analysis_results.get('timeline_segments', [])
+            
+            if timeline_segments:
+                logger.info(f"Found {len(timeline_segments)} timeline segments from ContentAnalysisPlugin")
+                return timeline_segments
+            
+        except Exception as e:
+            logger.warning(f"Error accessing timeline segments: {e}")
+        
+        return []
+    
+    def _classify_timeline_segments(self, audio_data: np.ndarray, sample_rate: int, 
+                                  timeline_segments: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Classify each timeline segment using PaSST."""
+        try:
+            segment_results = []
+            timeline_classifications = []
+            all_predictions = []
+            
+            for segment in timeline_segments:
+                try:
+                    segment_id = segment['segment_id']
+                    start_sample = segment['start_sample']
+                    end_sample = segment['end_sample']
+                    duration = segment['duration']
+                    
+                    # Extract audio segment
+                    if end_sample <= len(audio_data):
+                        audio_segment = audio_data[start_sample:end_sample]
+                    else:
+                        logger.warning(f"Segment {segment_id} extends beyond audio length")
+                        audio_segment = audio_data[start_sample:]
+                    
+                    # Skip very short segments (but allow thunder/short events)
+                    if len(audio_segment) / sample_rate < 1.0:
+                        logger.warning(f"Skipping very short segment {segment_id} ({duration:.1f}s) - need min 1s for classification")
+                        continue
+                    
+                    logger.info(f"Classifying segment {segment_id}: {duration:.1f}s at {segment['start_time']:.1f}s")
+                    
+                    # Ensure consistent segment length for PaSST (avoid tensor size mismatches)
+                    if not self._use_fallback:
+                        # For short segments (< 3s), pad with silence to 3s minimum for PaSST stability
+                        min_samples = int(3.0 * sample_rate)
+                        if len(audio_segment) < min_samples:
+                            # Pad with zeros (silence) to reach minimum length
+                            padding_needed = min_samples - len(audio_segment)
+                            audio_segment = np.pad(audio_segment, (0, padding_needed), mode='constant', constant_values=0)
+                            logger.debug(f"Padded segment {segment_id} from {duration:.1f}s to 3.0s for PaSST compatibility")
+                        
+                        # PaSST works best with 10-second chunks to avoid size mismatches
+                        max_samples = int(10.0 * sample_rate)
+                        if len(audio_segment) > max_samples:
+                            audio_segment = audio_segment[:max_samples]
+                            logger.debug(f"Truncated segment {segment_id} to 10s for PaSST compatibility")
+                    
+                    # Classify this segment
+                    if self._use_fallback:
+                        classification_results = self._classify_with_fallback(audio_segment, sample_rate)
+                    else:
+                        classification_results = self._classify_with_passt(audio_segment, sample_rate)
+                    
+                    # Process segment results
+                    processed_segment = self._process_classification_results(
+                        classification_results, self._use_fallback
+                    )
+                    
+                    # Store segment result (ensure all values are JSON serializable)
+                    segment_result = {
+                        'segment_id': str(segment_id),
+                        'start_time': float(segment['start_time']),
+                        'end_time': float(segment['end_time']),
+                        'duration': float(duration),
+                        'classification': str(processed_segment['top_label']),
+                        'confidence': float(processed_segment['top_score']),
+                        'music_probability': float(processed_segment['music_prob']),
+                        'speech_probability': float(processed_segment['speech_prob']),
+                        'top_classifications': [(str(label), float(score)) for label, score in zip(processed_segment['labels'][:3], processed_segment['scores'][:3])]
+                    }
+                    
+                    # Debug: Log what each segment gets classified as
+                    logger.info(f"  → {segment_id} ({segment['start_time']:.1f}-{segment['end_time']:.1f}s): {processed_segment['top_label']} ({processed_segment['top_score']:.3f})")
+                    
+                    segment_results.append(segment_result)
+                    
+                    # Add to timeline (ensure JSON serializable)
+                    timeline_classifications.append({
+                        'time': float(segment['start_time']),
+                        'duration': float(duration),
+                        'classification': str(processed_segment['top_label']),
+                        'confidence': float(processed_segment['top_score'])
+                    })
+                    
+                    # Collect for overall prediction
+                    all_predictions.append((processed_segment['top_label'], processed_segment['top_score'], duration))
+                    
+                except Exception as e:
+                    logger.error(f"Error classifying segment {segment.get('segment_id', 'unknown')}: {e}")
+                    continue
+            
+            # Calculate overall prediction (weighted by duration and confidence)
+            overall_prediction = self._calculate_overall_prediction(all_predictions)
+            
+            # Create content timeline
+            content_timeline = self._create_content_timeline(timeline_classifications)
+            
+            return {
+                'timeline_classifications': timeline_classifications,
+                'segment_results': segment_results,
+                'total_segments': int(len(segment_results)),
+                'overall_prediction': str(overall_prediction),
+                'content_timeline': str(content_timeline)
+            }
+            
+        except Exception as e:
+            logger.error(f"Timeline classification error: {e}")
+            return {
+                'timeline_classifications': [],
+                'segment_results': [],
+                'total_segments': 0,
+                'overall_prediction': 'unknown',
+                'content_timeline': 'Classification failed'
+            }
+    
+    def _calculate_overall_prediction(self, predictions: List[Tuple[str, float, float]]) -> str:
+        """Calculate overall prediction from segment predictions weighted by duration and confidence."""
+        if not predictions:
+            return "unknown"
+        
+        try:
+            # Weight predictions by duration * confidence
+            weighted_predictions = {}
+            total_weight = 0
+            
+            for label, confidence, duration in predictions:
+                weight = duration * confidence
+                if label not in weighted_predictions:
+                    weighted_predictions[label] = 0
+                weighted_predictions[label] += weight
+                total_weight += weight
+            
+            # Find highest weighted prediction
+            if total_weight > 0:
+                best_label = max(weighted_predictions.items(), key=lambda x: x[1])[0]
+                return best_label
+            else:
+                return predictions[0][0]  # Fallback to first prediction
+                
+        except Exception as e:
+            logger.error(f"Error calculating overall prediction: {e}")
+            return "unknown"
+    
+    def _create_content_timeline(self, timeline_classifications: List[Dict[str, Any]]) -> str:
+        """Create human-readable content timeline description."""
+        if not timeline_classifications:
+            return "No content detected"
+        
+        try:
+            # Sort by time
+            sorted_timeline = sorted(timeline_classifications, key=lambda x: x['time'])
+            
+            # Create timeline description
+            timeline_parts = []
+            for i, item in enumerate(sorted_timeline):
+                time_str = f"{item['time']:.1f}s"
+                content = item['classification']
+                confidence = item['confidence']
+                
+                if confidence > 0.7:
+                    conf_str = "high confidence"
+                elif confidence > 0.4:
+                    conf_str = "medium confidence"
+                else:
+                    conf_str = "low confidence"
+                
+                timeline_parts.append(f"{time_str}: {content} ({conf_str})")
+            
+            return " → ".join(timeline_parts)
+            
+        except Exception as e:
+            logger.error(f"Error creating content timeline: {e}")
+            return "Timeline creation failed"
     
     def _error_result(self, error_message: str) -> Dict[str, Any]:
         """Return standardized error result."""

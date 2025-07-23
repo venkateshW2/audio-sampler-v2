@@ -254,10 +254,17 @@ class TempoMeterDetectorPlugin(BasePlugin):
             # Method 1: Standard beat tracking
             try:
                 tempo1, _ = librosa.beat.beat_track(y=audio_data, sr=sample_rate)
+                # Ensure tempo1 is a scalar
+                if hasattr(tempo1, '__len__') and len(tempo1) > 0:
+                    tempo1 = float(tempo1[0])
+                else:
+                    tempo1 = float(tempo1)
+                    
                 if 60 <= tempo1 <= 200:  # Shreya's validation range
                     tempos.append(tempo1)
                     method_names.append('beat_track')
-            except:
+            except Exception as e:
+                logger.debug(f"Beat tracking method failed: {e}")
                 pass
             
             # Method 2: Onset-based tempo
@@ -268,9 +275,10 @@ class TempoMeterDetectorPlugin(BasePlugin):
                     intervals = np.diff(onset_times)
                     tempo2 = 60.0 / np.median(intervals) if len(intervals) > 0 else None
                     if tempo2 and 60 <= tempo2 <= 200:
-                        tempos.append(tempo2)
+                        tempos.append(float(tempo2))
                         method_names.append('onset_based')
-            except:
+            except Exception as e:
+                logger.debug(f"Onset-based tempo method failed: {e}")
                 pass
             
             # Method 3: Autocorrelation tempo
@@ -282,11 +290,13 @@ class TempoMeterDetectorPlugin(BasePlugin):
                 
                 # Find peaks in autocorrelation
                 peak_idx = np.argmax(ac[1:]) + 1  # Skip zero lag
-                tempo3 = 60.0 * sample_rate / (librosa.samples_to_frames(1) * peak_idx)
-                if 60 <= tempo3 <= 200:
-                    tempos.append(tempo3)
-                    method_names.append('autocorr')
-            except:
+                if peak_idx > 0:  # Avoid division by zero
+                    tempo3 = 60.0 * sample_rate / (librosa.samples_to_frames(1) * peak_idx)
+                    if 60 <= tempo3 <= 200:
+                        tempos.append(float(tempo3))
+                        method_names.append('autocorr')
+            except Exception as e:
+                logger.debug(f"Autocorrelation tempo method failed: {e}")
                 pass
             
             # Method 4: Spectral flux tempo
@@ -303,19 +313,27 @@ class TempoMeterDetectorPlugin(BasePlugin):
                     intervals = np.diff(peak_times)
                     tempo4 = 60.0 / np.median(intervals) if len(intervals) > 0 else None
                     if tempo4 and 60 <= tempo4 <= 200:
-                        tempos.append(tempo4)
+                        tempos.append(float(tempo4))
                         method_names.append('spectral_flux')
-            except:
+            except Exception as e:
+                logger.debug(f"Spectral flux tempo method failed: {e}")
                 pass
             
             # Method 5: Harmonic/percussive separation tempo
             try:
                 y_harmonic, y_percussive = librosa.effects.hpss(audio_data)
                 tempo5, _ = librosa.beat.beat_track(y=y_percussive, sr=sample_rate)
+                # Ensure tempo5 is a scalar
+                if hasattr(tempo5, '__len__') and len(tempo5) > 0:
+                    tempo5 = float(tempo5[0])
+                else:
+                    tempo5 = float(tempo5)
+                    
                 if 60 <= tempo5 <= 200:
                     tempos.append(tempo5)
                     method_names.append('hpss_percussive')
-            except:
+            except Exception as e:
+                logger.debug(f"HPSS tempo method failed: {e}")
                 pass
             
             # Consensus calculation (Shreya's approach)

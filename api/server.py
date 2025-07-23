@@ -96,10 +96,11 @@ async def analyze_uploaded_file(file: UploadFile = File(...)):
                     detail="File must be an audio file (.wav, .mp3, .flac, .m4a)"
                 )
         
+        # Read uploaded file content
+        content = await file.read()
+        
         # Create temporary file
         with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tmp:
-            # Read and save uploaded file
-            content = await file.read()
             tmp.write(content)
             tmp_path = tmp.name
         
@@ -116,6 +117,36 @@ async def analyze_uploaded_file(file: UploadFile = File(...)):
                 raise HTTPException(status_code=503, detail="Engine not initialized")
             
             logger.info(f"Processing uploaded file: {file.filename} ({len(content)} bytes)")
+            
+            # Check for duplicates based on original filename
+            if engine.db_integration:
+                try:
+                    from database.models import File as FileModel
+                    with engine.db_integration.db.get_session() as session:
+                        existing_files = session.query(FileModel).filter(
+                            FileModel.path.like(f"%/{file.filename}")
+                        ).all()
+                        
+                        if existing_files:
+                            logger.info(f"Found {len(existing_files)} existing files with name {file.filename}")
+                            # Return the most recent analysis instead of re-processing
+                            most_recent = max(existing_files, key=lambda x: x.date_analyzed or x.date_added)
+                            logger.info(f"Returning existing analysis for file ID {most_recent.id}")
+                            
+                            # Get existing analysis results
+                            existing_result = engine.db_integration.get_file_analysis(most_recent.id)
+                            if existing_result:
+                                return {
+                                    "analysis_result": existing_result,
+                                    "api_version": "2.0.0-phase1",
+                                    "duplicate_detection": {
+                                        "is_duplicate": True,
+                                        "original_file_id": most_recent.id,
+                                        "message": f"Returning existing analysis for {file.filename}"
+                                    }
+                                }
+                except Exception as e:
+                    logger.warning(f"Duplicate detection failed, proceeding with analysis: {e}")
             
             # Process the temporary file
             result = engine.process_file(tmp_path)

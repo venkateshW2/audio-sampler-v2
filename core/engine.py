@@ -329,10 +329,107 @@ class AudioSamplerEngine:
         # Get resource status for plugin capability checks
         resource_status = self.resource_manager.get_resource_status() if self.resource_manager else {}
         
-        # Process through each plugin
+        # Step 1: Check if FeatureExtractor is available and run it first
+        feature_cache_id = None
+        feature_extractor = None
+        
+        for plugin in self.plugins:
+            if getattr(plugin, 'get_name', lambda: '')() == 'feature_extractor':
+                feature_extractor = plugin
+                break
+        
+        if feature_extractor:
+            try:
+                self.logger.info(f"Running FeatureExtractor for region {region_id}")
+                
+                region_info = {
+                    'start_time': region.get('start_time', 0.0),
+                    'end_time': region.get('end_time', 0.0),
+                    'region_id': region_id
+                }
+                
+                fe_start = time.time()
+                fe_result = feature_extractor.analyze(audio_data, sample_rate, region_info)
+                fe_duration = time.time() - fe_start
+                
+                # Store FeatureExtractor results
+                region_analysis['plugin_results']['feature_extractor'] = {
+                    'data': fe_result,
+                    'processing_time': fe_duration,
+                    'timestamp': datetime.now().isoformat(),
+                    'success': fe_result.get('success', False)
+                }
+                
+                if fe_result.get('success', False):
+                    region_analysis['successful_plugins'] += 1
+                    feature_cache_id = fe_result.get('feature_cache_id')
+                    self.logger.info(f"✅ FeatureExtractor completed with cache ID: {feature_cache_id}")
+                else:
+                    region_analysis['failed_plugins'] += 1
+                    if 'error' in fe_result:
+                        region_analysis['errors'].append(f"FeatureExtractor: {fe_result['error']}")
+                
+            except Exception as e:
+                error_msg = f"FeatureExtractor error: {e}"
+                self.logger.error(error_msg)
+                region_analysis['errors'].append(error_msg)
+                region_analysis['failed_plugins'] += 1
+        
+        # Step 2: Run ContentAnalysisPlugin if available and FeatureExtractor succeeded
+        content_analysis_plugin = None
+        for plugin in self.plugins:
+            if getattr(plugin, 'get_name', lambda: '')() == 'content_analysis':
+                content_analysis_plugin = plugin
+                break
+        
+        if content_analysis_plugin and feature_cache_id:
+            try:
+                self.logger.info(f"Running ContentAnalysisPlugin for region {region_id}")
+                
+                ca_start = time.time()
+                ca_result = content_analysis_plugin.process(
+                    audio_data=audio_data,
+                    sample_rate=sample_rate,
+                    feature_cache_id=feature_cache_id,
+                    region_id=region_id
+                )
+                ca_duration = time.time() - ca_start
+                
+                # Store ContentAnalysisPlugin results
+                region_analysis['plugin_results']['content_analysis'] = {
+                    'data': ca_result,
+                    'processing_time': ca_duration,
+                    'timestamp': datetime.now().isoformat(),
+                    'success': ca_result.get('success', False)
+                }
+                
+                if ca_result.get('success', False):
+                    region_analysis['successful_plugins'] += 1
+                    
+                    # Store content analysis results in feature cache for ClassifierPlugin
+                    if feature_cache_id:
+                        self._store_content_analysis_results(feature_cache_id, ca_result)
+                    
+                    self.logger.info(f"✅ ContentAnalysisPlugin completed: {ca_result.get('total_segments', 0)} segments")
+                else:
+                    region_analysis['failed_plugins'] += 1
+                    if 'error' in ca_result:
+                        region_analysis['errors'].append(f"ContentAnalysisPlugin: {ca_result['error']}")
+                
+            except Exception as e:
+                error_msg = f"ContentAnalysisPlugin error: {e}"
+                self.logger.error(error_msg)
+                region_analysis['errors'].append(error_msg)
+                region_analysis['failed_plugins'] += 1
+        
+        # Step 3: Process through remaining plugins (skip FeatureExtractor and ContentAnalysisPlugin)
         for plugin in self.plugins:
             try:
                 plugin_name = getattr(plugin, 'get_name', lambda: 'Unknown')()
+                
+                # Skip FeatureExtractor and ContentAnalysisPlugin (already processed)
+                if plugin_name in ['feature_extractor', 'content_analysis']:
+                    continue
                 
                 # Check if plugin can process this region
                 can_process, reason = getattr(plugin, 'can_process', lambda x, y, z: (True, "No check"))(
@@ -343,15 +440,21 @@ class AudioSamplerEngine:
                     region_analysis['warnings'].append(f"Plugin {plugin_name} skipped: {reason}")
                     continue
                 
-                # Run plugin analysis on region
+                # Run plugin analysis on region with shared features if available
                 plugin_start = time.time()
-                plugin_result = plugin.process(
-                    audio_data=audio_data,
-                    sample_rate=sample_rate,
-                    file_path=None,  # No file path for regions
-                    region_id=region_id,
-                    region_metadata=region_analysis['region_metadata']
-                )
+                plugin_kwargs = {
+                    'audio_data': audio_data,
+                    'sample_rate': sample_rate,
+                    'file_path': None,  # No file path for regions
+                    'region_id': region_id,
+                    'region_metadata': region_analysis['region_metadata']
+                }
+                
+                # Add feature cache ID if available
+                if feature_cache_id:
+                    plugin_kwargs['feature_cache_id'] = feature_cache_id
+                
+                plugin_result = plugin.process(**plugin_kwargs)
                 plugin_duration = time.time() - plugin_start
                 
                 # Store plugin results
@@ -398,6 +501,22 @@ class AudioSamplerEngine:
         }
         
         return status
+    
+    def _store_content_analysis_results(self, feature_cache_id: str, ca_result: Dict[str, Any]):
+        """Store ContentAnalysisPlugin results in FeatureExtractor cache for ClassifierPlugin access."""
+        try:
+            # Import the global feature cache from FeatureExtractor
+            from plugins.core_plugins.feature_extractor import _GLOBAL_FEATURE_CACHE
+            
+            if feature_cache_id in _GLOBAL_FEATURE_CACHE:
+                # Add content analysis results to the cached features
+                _GLOBAL_FEATURE_CACHE[feature_cache_id]['content_analysis_results'] = ca_result
+                self.logger.debug(f"Stored ContentAnalysisPlugin results in cache {feature_cache_id}")
+            else:
+                self.logger.warning(f"Cache ID {feature_cache_id} not found for storing content analysis results")
+                
+        except Exception as e:
+            self.logger.error(f"Error storing content analysis results: {e}")
     
     def _store_results_in_database(self, file_path: Path, result: Dict[str, Any]):
         """Store analysis results in database using DatabaseIntegration."""

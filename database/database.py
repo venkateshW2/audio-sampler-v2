@@ -339,12 +339,15 @@ class Database:
                     'plugins_used': []
                 }
                 
-                # Files by status
-                for status, count in session.query(File.status, session.query(File).filter(File.status == File.status).count()).distinct():
+                # Files by status (optimized)
+                from sqlalchemy import func
+                file_status_counts = session.query(File.status, func.count(File.id)).group_by(File.status).all()
+                for status, count in file_status_counts:
                     stats['files_by_status'][status] = count
                 
-                # Regions by status  
-                for status, count in session.query(Region.status, session.query(Region).filter(Region.status == Region.status).count()).distinct():
+                # Regions by status (optimized)
+                region_status_counts = session.query(Region.status, func.count(Region.id)).group_by(Region.status).all()
+                for status, count in region_status_counts:
                     stats['regions_by_status'][status] = count
                 
                 # Plugins used

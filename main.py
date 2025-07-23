@@ -81,11 +81,16 @@ async def startup_event():
         
         engine = AudioSamplerEngine(config)
         
-        # Register core plugins
+        # Register core plugins in proper order
+        from plugins.core_plugins.feature_extractor import FeatureExtractorPlugin
+        from plugins.core_plugins.content_analysis import ContentAnalysisPlugin
         from plugins.core_plugins.classifier import ClassifierPlugin
         from plugins.core_plugins.tempo_meter_detector import TempoMeterDetectorPlugin  
         from plugins.core_plugins.key_finder import KeyFinderPlugin
         
+        # CRITICAL ORDER: FeatureExtractor → ContentAnalysis → Other plugins
+        engine.register_plugin(FeatureExtractorPlugin())  # Must be first
+        engine.register_plugin(ContentAnalysisPlugin())   # Must be second for timeline analysis
         engine.register_plugin(ClassifierPlugin())
         engine.register_plugin(TempoMeterDetectorPlugin())
         engine.register_plugin(KeyFinderPlugin())
