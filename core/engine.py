@@ -26,6 +26,12 @@ try:
 except ImportError:
     DatabaseIntegration = None
 
+# Import waveform generator
+try:
+    from .waveform_generator import waveform_generator
+except ImportError:
+    waveform_generator = None
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -147,6 +153,25 @@ class AudioSamplerEngine:
             result['file_metadata'] = region_result['file_metadata']
             result['regions'] = region_result['regions']
             result['total_regions'] = region_result['total_regions']
+            
+            # Phase 1.5: Generate waveform visualization data
+            if waveform_generator:
+                try:
+                    self.logger.info("Generating waveform visualization data...")
+                    waveform_data = waveform_generator.generate_from_file(file_path)
+                    result['waveform_data'] = waveform_data
+                    if 'error' not in waveform_data:
+                        self.logger.info(f"✅ Waveform data generated: {waveform_data.get('duration', 0):.2f}s")
+                    else:
+                        self.logger.warning(f"⚠️ Waveform generation had issues: {waveform_data['error']}")
+                except Exception as e:
+                    error_msg = f"Waveform generation failed: {e}"
+                    self.logger.warning(error_msg)
+                    result['warnings'].append(error_msg)
+                    result['waveform_data'] = {'error': str(e), 'duration': 0}
+            else:
+                self.logger.warning("Waveform generator not available")
+                result['waveform_data'] = {'error': 'Waveform generator not available', 'duration': 0}
             
             # Phase 2: Process each region independently through all plugins
             region_analyses = self._process_regions(region_result['regions'])

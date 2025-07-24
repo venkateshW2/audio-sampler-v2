@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Intelligence Sampler v2 - Simple</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="logo">
+                <i class="fas fa-wave-square"></i>
+                Audio Intelligence Sampler v2 - WORKING VERSION
+            </div>
+            <div class="header-controls">
+                <div class="backend-status">
+                    <span class="status-indicator" id="statusIndicator"></span>
+                    <span id="statusText">Checking...</span>
+                </div>
+            </div>
+        </header>
+        
+        <!-- Main Layout -->
+        <div class="main-layout">
+            <!-- Left Panel -->
+            <aside class="left-panel">
+                <div class="upload-section">
+                    <div class="upload-zone" id="uploadArea">
+                        <div class="upload-content">
+                            <i class="fas fa-cloud-upload-alt upload-icon"></i>
+                            <p>Drop audio file here or click to browse</p>
+                            <input type="file" id="fileInput" accept="audio/*" style="display: none;">
+                        </div>
+                    </div>
+                    
+                    <div class="path-input-section">
+                        <input type="text" id="filePath" placeholder="/path/to/audio.wav" class="path-input">
+                        <button id="analyzePathBtn" class="analyze-btn">ANALYZE</button>
+                    </div>
+                </div>
+            </aside>
+            
+            <!-- Center Panel -->
+            <main class="center-panel">
+                <div class="waveform-section">
+                    <div class="waveform-header">
+                        <div class="transport-controls">
+                            <button id="playPause" class="transport-btn"><i class="fas fa-play"></i></button>
+                            <button id="stop" class="transport-btn"><i class="fas fa-stop"></i></button>
+                            <div class="tempo-key-display">
+                                <div class="tempo-display">
+                                    <span class="label">BPM</span>
+                                    <span id="tempoValue" class="value">--</span>
+                                </div>
+                                <div class="key-display">  
+                                    <span class="label">KEY</span>
+                                    <span id="keyValue" class="value">--</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="timeline-area">
+                        <div id="waveformContainer" class="waveform-container" style="display: none;">
+                            <div id="overviewContainer" class="peaks-overview"></div>
+                            <div id="zoomviewContainer" class="peaks-zoomview"></div>
+                        </div>
+                        
+                        <div id="emptyWaveform" class="empty-waveform" style="display: flex;">
+                            <div class="empty-content">
+                                <i class="fas fa-wave-square"></i>
+                                <p>Upload audio to see waveform</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+            
+            <!-- Right Panel -->
+            <aside class="right-panel">
+                <div class="properties-panel">
+                    <h2>Properties</h2>
+                    <div id="propertiesContent" class="properties-content">
+                        <div class="properties-section">
+                            <h3>System Status</h3>
+                            <div class="property-list">
+                                <div class="property-item">
+                                    <span class="property-label">Engine</span>
+                                    <span id="engineStatus" class="property-value">Loading...</span>
+                                </div>
+                                <div class="property-item">
+                                    <span class="property-label">Plugins</span>
+                                    <span id="pluginStatus" class="property-value">Loading...</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+        </div>
+        
+        <!-- Loading Overlay -->
+        <div id="loadingOverlay" class="loading-overlay" style="display: none;">
+            <div class="loading-content">
+                <div class="spinner"></div>
+                <p id="loadingText">Analyzing...</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="libs/peaks.js"></script>
+    <script>
+        console.log('🚀 Simple Audio Sampler v2 starting...');
+        
+        // Map peaks to Peaks for compatibility
+        if (typeof peaks !== 'undefined') {
+            window.Peaks = peaks;
+            console.log('✅ Peaks.js loaded successfully');
+        }
+        
+        class SimpleAudioSampler {
+            constructor() {
+                console.log('🚀 SimpleAudioSampler constructor started...');
+                this.apiBase = window.location.origin;
+                this.isAnalyzing = false;
+                
+                // Get DOM elements
+                this.uploadArea = document.getElementById('uploadArea');
+                this.uploadInput = document.getElementById('fileInput');
+                this.uploadPathInput = document.getElementById('filePath');
+                this.analyzeBtn = document.getElementById('analyzePathBtn');
+                this.loadingOverlay = document.getElementById('loadingOverlay');
+                this.loadingText = document.getElementById('loadingText');
+                this.statusIndicator = document.getElementById('statusIndicator');
+                this.statusText = document.getElementById('statusText');
+                this.propertiesContent = document.getElementById('propertiesContent');
+                this.tempoValue = document.getElementById('tempoValue');
+                this.keyValue = document.getElementById('keyValue');
+                
+                console.log('✅ DOM elements collected');
+                
+                this.setupEventListeners();
+                this.checkBackendStatus();
+                
+                console.log('✅ SimpleAudioSampler initialized');
+            }
+            
+            setupEventListeners() {
+                // Upload area events
+                if (this.uploadArea) {
+                    this.uploadArea.addEventListener('click', () => {
+                        this.uploadInput.click();
+                    });
+                }
+                
+                // File input change
+                if (this.uploadInput) {
+                    this.uploadInput.addEventListener('change', () => {
+                        this.handleFileUpload();
+                    });
+                }
+                
+                // Analyze path button  
+                if (this.analyzeBtn) {
+                    this.analyzeBtn.addEventListener('click', () => {
+                        this.handleFileUpload();
+                    });
+                }
+                
+                // Transport controls
+                if (this.playPauseBtn) {
+                    this.playPauseBtn.addEventListener('click', () => {
+                        this.togglePlayback();
+                    });
+                }
+                
+                if (this.stopBtn) {
+                    this.stopBtn.addEventListener('click', () => {
+                        this.stopPlayback();
+                    });
+                }
+                
+                console.log('✅ Event listeners setup complete');
+            }
+            
+            async checkBackendStatus() {
+                try {
+                    const response = await fetch(`${this.apiBase}/health`);
+                    const data = await response.json();
+                    
+                    console.log('✅ Backend status:', data.status);
+                    
+                    if (this.statusIndicator && this.statusText) {
+                        this.statusIndicator.classList.toggle('connected', data.status === 'healthy');
+                        this.statusText.textContent = data.status === 'healthy' ? 'Connected' : 'Disconnected';
+                    }
+                    
+                    // Update engine status
+                    const engineStatus = document.getElementById('engineStatus');
+                    const pluginStatus = document.getElementById('pluginStatus');
+                    
+                    if (data && data.engine) {
+                        if (engineStatus) engineStatus.textContent = 'READY';
+                        if (pluginStatus) pluginStatus.textContent = `${data.engine.plugins_registered || 0} LOADED`;
+                    }
+                    
+                    return data && data.status === 'healthy';
+                } catch (error) {
+                    console.error('❌ Backend status check failed:', error);
+                    
+                    if (this.statusIndicator && this.statusText) {
+                        this.statusIndicator.classList.remove('connected');
+                        this.statusText.textContent = 'Disconnected';
+                    }
+                    
+                    return false;
+                }
+            }
+            
+            async handleFileUpload() {
+                if (this.isAnalyzing) return;
+                
+                if ((!this.uploadInput || !this.uploadInput.files.length) && 
+                    (!this.uploadPathInput || !this.uploadPathInput.value)) {
+                    alert('Please select a file or enter a file path');
+                    return;
+                }
+                
+                this.isAnalyzing = true;
+                this.showLoading('Uploading and analyzing audio file...');
+                
+                try {
+                    let response;
+                    
+                    if (this.uploadInput.files.length) {
+                        // File upload
+                        const file = this.uploadInput.files[0];
+                        const formData = new FormData();
+                        formData.append('file', file);
+                        
+                        response = await fetch(`${this.apiBase}/api/analyze/upload`, {
+                            method: 'POST',
+                            body: formData
+                        });
+                    } else {
+                        // Path-based analysis
+                        const filePath = this.uploadPathInput.value;
+                        response = await fetch(`${this.apiBase}/analyze`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ file_path: filePath })
+                        });
+                    }
+                    
+                    if (!response.ok) {
+                        throw new Error(`Analysis failed: ${response.status} ${response.statusText}`);
+                    }
+                    
+                    const apiResponse = await response.json();
+                    const result = apiResponse.analysis_result || apiResponse;
+                    
+                    console.log('✅ Analysis result received:', result);
+                    
+                    // Initialize waveform from backend data if available
+                    if (result.waveform_data && !result.waveform_data.error) {
+                        console.log('🎵 Backend provided waveform data:', {
+                            duration: result.waveform_data.duration,
+                            overview_samples: result.waveform_data.overview?.samples || 0,
+                            zoom_samples: result.waveform_data.zoom?.samples || 0
+                        });
+                        
+                        this.initializeWaveformFromBackend(result.waveform_data);
+                    } else {
+                        console.warn('⚠️ No waveform data from backend or error occurred');
+                        if (result.waveform_data?.error) {
+                            console.error('Waveform error:', result.waveform_data.error);
+                        }
+                    }
+                    
+                    this.displayResults(result);
+                    
+                } catch (error) {
+                    console.error('❌ Analysis failed:', error);
+                    alert(`Analysis failed: ${error.message}`);
+                } finally {
+                    this.hideLoading();
+                    this.isAnalyzing = false;
+                }
+            }
+            
+            displayResults(result) {
+                console.log('📊 Displaying results:', result);
+                
+                // Update musical properties
+                this.updateMusicalProperties(result);
+                
+                // Update properties panel
+                this.updatePropertiesPanel(result);
+            }
+            
+            updateMusicalProperties(result) {
+                let tempo = null;
+                let key = null;
+                
+                if (result.region_analyses && result.region_analyses.length > 0) {
+                    result.region_analyses.forEach(regionAnalysis => {
+                        // Get tempo
+                        if (regionAnalysis.plugin_results && regionAnalysis.plugin_results.tempo_meter_detector && 
+                            regionAnalysis.plugin_results.tempo_meter_detector.data) {
+                            const tempoResults = regionAnalysis.plugin_results.tempo_meter_detector.data;
+                            if (tempoResults.tempo_bpm !== undefined) {
+                                tempo = tempoResults.tempo_bpm;
+                            }
+                        }
+                        
+                        // Get key
+                        if (regionAnalysis.plugin_results && regionAnalysis.plugin_results.key_finder &&
+                            regionAnalysis.plugin_results.key_finder.data) {
+                            const keyResults = regionAnalysis.plugin_results.key_finder.data;
+                            if (keyResults.key && keyResults.key !== 'Unknown') {
+                                key = keyResults.key + (keyResults.mode ? ' ' + keyResults.mode : '');
+                            }
+                        }
+                    });
+                }
+                
+                // Update displays
+                if (this.tempoValue) {
+                    this.tempoValue.textContent = tempo !== null ? Math.round(tempo) : '--';
+                }
+                
+                if (this.keyValue) {
+                    this.keyValue.textContent = key || '--';
+                }
+                
+                console.log('🎵 Musical properties updated - Tempo:', tempo, 'Key:', key);
+            }
+            
+            updatePropertiesPanel(result) {
+                if (!this.propertiesContent) return;
+                
+                let html = '';
+                
+                // File properties
+                html += `
+                    <div class="properties-section">
+                        <h3>File Properties</h3>
+                        <div class="property-list">
+                            <div class="property-item">
+                                <span class="property-label">Duration</span>
+                                <span class="property-value">${this.formatTime(result.duration_seconds || 0)}</span>
+                            </div>
+                            <div class="property-item">
+                                <span class="property-label">Success</span>
+                                <span class="property-value">${result.success ? 'Yes' : 'No'}</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                // Timeline Classification
+                if (result.region_analyses && result.region_analyses.length > 0) {
+                    const classifierAnalysis = result.region_analyses.find(r => 
+                        r.plugin_results && r.plugin_results.classifier && r.plugin_results.classifier.data);
+                    
+                    if (classifierAnalysis && classifierAnalysis.plugin_results.classifier.data.timeline_classifications) {
+                        html += `
+                            <div class="properties-section">
+                                <h3>Timeline Classification</h3>
+                                <div class="timeline-segments">
+                        `;
+                        
+                        const timelineSegs = classifierAnalysis.plugin_results.classifier.data.timeline_classifications;
+                        Object.entries(timelineSegs).forEach(([segmentId, segmentData]) => {
+                            const startTime = this.formatTime(segmentData.start_time || 0);
+                            const endTime = this.formatTime(segmentData.end_time || 0);
+                            const classification = segmentData.classification || segmentData.label || 'Unknown';
+                            const confidence = Math.round((segmentData.confidence || 0) * 100);
+                            
+                            html += `
+                                <div class="timeline-segment-item">
+                                    <div class="segment-info">
+                                        <span class="segment-type">${classification}</span>
+                                        <span class="segment-time">${startTime} - ${endTime}</span>
+                                        <span class="segment-confidence">${confidence}%</span>
+                                    </div>
+                                </div>
+                            `;
+                        });
+                        
+                        html += `
+                                </div>
+                            </div>
+                        `;
+                    }
+                }
+                
+                // System status
+                html += `
+                    <div class="properties-section">
+                        <h3>System Status</h3>
+                        <div class="property-list">
+                            <div class="property-item">
+                                <span class="property-label">Engine</span>
+                                <span class="property-value">READY</span>
+                            </div>
+                            <div class="property-item">
+                                <span class="property-label">Plugins</span>
+                                <span class="property-value">5 LOADED</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                this.propertiesContent.innerHTML = html;
+                console.log('✅ Properties panel updated');
+            }
+            
+            async loadAudioFile(file) {
+                try {
+                    console.log('🎵 Loading audio file for waveform:', file.name);
+                    
+                    // Create audio buffer from file
+                    const arrayBuffer = await file.arrayBuffer();
+                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                    
+                    this.currentAudioBuffer = audioBuffer;
+                    console.log('✅ Audio buffer created:', {
+                        duration: audioBuffer.duration,
+                        sampleRate: audioBuffer.sampleRate,
+                        channels: audioBuffer.numberOfChannels
+                    });
+                    
+                    // Initialize Peaks.js waveform
+                    await this.initializeWaveform(audioBuffer);
+                    
+                } catch (error) {
+                    console.error('❌ Audio loading failed:', error);
+                    // Continue without waveform
+                }
+            }
+            
+            async initializeWaveform(audioBuffer) {
+                try {
+                    if (!window.Peaks) {
+                        console.warn('⚠️ Peaks.js not available, skipping waveform');
+                        return;
+                    }
+                    
+                    console.log('🎵 Initializing Peaks.js waveform...');
+                    
+                    // Show waveform container
+                    if (this.waveformContainer) this.waveformContainer.style.display = 'block';
+                    if (this.emptyWaveform) this.emptyWaveform.style.display = 'none';
+                    
+                    // Destroy existing peaks instance
+                    if (this.peaks) {
+                        this.peaks.destroy();
+                    }
+                    
+                    // Initialize Peaks.js
+                    this.peaks = window.Peaks.init({
+                        containers: {
+                            overview: document.getElementById('overviewContainer'),
+                            zoomview: document.getElementById('zoomviewContainer')
+                        },
+                        mediaElement: null, // We'll use WebAudio instead
+                        webAudio: {
+                            audioBuffer: audioBuffer,
+                            audioContext: audioBuffer.context || new (window.AudioContext || window.webkitAudioContext)()
+                        },
+                        keyboard: true,
+                        pointMarkerColor: '#FF6B6B',
+                        showPlayheadTime: true,
+                        zoomWaveformColor: '#4ECDC4',
+                        overviewWaveformColor: '#45B7D1',
+                        segmentStartMarkerColor: '#FF6B6B',
+                        segmentEndMarkerColor: '#FF6B6B',
+                        randomizeSegmentColor: false
+                    });
+                    
+                    console.log('✅ Peaks.js initialized successfully');
+                    
+                } catch (error) {
+                    console.error('❌ Waveform initialization failed:', error);
+                    // Hide waveform container and show empty state
+                    if (this.waveformContainer) this.waveformContainer.style.display = 'none';
+                    if (this.emptyWaveform) this.emptyWaveform.style.display = 'flex';
+                }
+            }
+            
+            addTimelineSegments(result) {
+                if (!this.peaks || !result.region_analyses) return;
+                
+                try {
+                    // Clear existing segments
+                    this.peaks.segments.removeAll();
+                    
+                    // Add timeline classification segments
+                    const classifierAnalysis = result.region_analyses.find(r => 
+                        r.plugin_results && r.plugin_results.classifier && r.plugin_results.classifier.data);
+                    
+                    if (classifierAnalysis && classifierAnalysis.plugin_results.classifier.data.timeline_classifications) {
+                        const timelineSegs = classifierAnalysis.plugin_results.classifier.data.timeline_classifications;
+                        
+                        Object.entries(timelineSegs).forEach(([segmentId, segmentData]) => {
+                            const startTime = segmentData.start_time || 0;
+                            const endTime = segmentData.end_time || startTime + 1;
+                            const classification = segmentData.classification || 'Unknown';
+                            
+                            // Get color for content type
+                            const color = this.getColorForContentType(classification.toLowerCase());
+                            
+                            this.peaks.segments.add({
+                                startTime: startTime,
+                                endTime: endTime,
+                                labelText: classification,
+                                color: color,
+                                id: segmentId
+                            });
+                        });
+                        
+                        console.log('✅ Timeline segments added to waveform');
+                    }
+                } catch (error) {
+                    console.error('❌ Failed to add timeline segments:', error);
+                }
+            }
+            
+            getColorForContentType(type) {
+                const colors = {
+                    'speech': '#4285F4',
+                    'music': '#34A853', 
+                    'thunder': '#FBBC05',
+                    'noise': '#EA4335',
+                    'silence': '#9AA0A6'
+                };
+                return colors[type?.toLowerCase()] || '#9AA0A6';
+            }
+            
+            togglePlayback() {
+                if (!this.peaks) {
+                    console.warn('⚠️ No waveform available for playback');
+                    return;
+                }
+                
+                if (this.peaks.player.isPlaying()) {
+                    this.peaks.player.pause();
+                    this.playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
+                } else {
+                    this.peaks.player.play();
+                    this.playPauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
+                }
+            }
+            
+            stopPlayback() {
+                if (!this.peaks) {
+                    console.warn('⚠️ No waveform available for playback');
+                    return;
+                }
+                
+                this.peaks.player.seek(0);
+                this.peaks.player.pause();
+                this.playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
+            }
+            
+            updateLoadingText(message) {
+                if (this.loadingText) this.loadingText.textContent = message;
+            }
+            
+            initializeWaveformFromBackend(waveformData) {
+                try {
+                    console.log('🎵 Initializing waveform display from backend data...');
+                    
+                    // Show waveform container
+                    if (this.waveformContainer) this.waveformContainer.style.display = 'block';
+                    if (this.emptyWaveform) this.emptyWaveform.style.display = 'none';
+                    
+                    // Get container elements
+                    const overviewContainer = document.getElementById('overviewContainer');
+                    const zoomviewContainer = document.getElementById('zoomviewContainer');
+                    
+                    if (overviewContainer && zoomviewContainer) {
+                        // Display waveform data info (placeholder until full Peaks.js integration)
+                        overviewContainer.innerHTML = `
+                            <div style="display: flex; align-items: center; justify-content: center; height: 100%; background: #f8f9fa; border: 1px solid #e0e0e0; font-family: monospace;">
+                                <div style="text-align: center; color: #333;">
+                                    <div style="font-size: 14px; font-weight: bold; margin-bottom: 8px;">✅ Waveform Data Available</div>
+                                    <div style="font-size: 12px;">Duration: ${waveformData.duration?.toFixed(2)}s</div>
+                                    <div style="font-size: 11px; margin-top: 4px;">Overview: ${waveformData.overview?.samples || 0} points</div>
+                                    <div style="font-size: 11px;">Zoom: ${waveformData.zoom?.samples || 0} points</div>
+                                </div>
+                            </div>
+                        `;
+                        
+                        zoomviewContainer.innerHTML = `
+                            <div style="display: flex; align-items: center; justify-content: center; height: 100%; background: #ffffff; border: 1px solid #e0e0e0; font-family: monospace;">
+                                <div style="text-align: center; color: #666;">
+                                    <div style="font-size: 12px; margin-bottom: 4px;">🎵 Backend Waveform Generated</div>
+                                    <div style="font-size: 11px;">Sample Rate: ${waveformData.sample_rate || 'Unknown'}Hz</div>
+                                    <div style="font-size: 11px; margin-top: 4px;">Ready for visualization</div>
+                                </div>
+                            </div>
+                        `;
+                        
+                        console.log('✅ Waveform data displayed successfully');
+                    } else {
+                        console.error('Waveform container elements not found');
+                    }
+                    
+                } catch (error) {
+                    console.error('❌ Backend waveform display failed:', error);
+                    
+                    // Show error state
+                    if (this.waveformContainer) this.waveformContainer.style.display = 'none';
+                    if (this.emptyWaveform) this.emptyWaveform.style.display = 'flex';
+                }
+            }
+            
+            showLoading(message = 'Loading...') {
+                if (this.loadingOverlay) this.loadingOverlay.style.display = 'flex';
+                if (this.loadingText) this.loadingText.textContent = message;
+            }
+            
+            hideLoading() {
+                if (this.loadingOverlay) this.loadingOverlay.style.display = 'none';
+            }
+            
+            formatTime(seconds) {
+                if (!seconds && seconds !== 0) return '--:--';
+                const mins = Math.floor(seconds / 60);
+                const secs = Math.floor(seconds % 60);
+                return `${mins}:${secs.toString().padStart(2, '0')}`;
+            }
+        }
+        
+        // Initialize app when DOM is ready
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('🚀 DOM loaded, initializing Simple Audio Sampler...');
+            window.simpleApp = new SimpleAudioSampler();
+            console.log('✅ Simple Audio Sampler initialized successfully!');
+        });
+        
+        console.log('📋 Simple Audio Sampler script loaded');
+    </script>
+</body>
+</html>
