@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Minimal Peaks.js Test</title>
+    <style>
+        body { font-family: monospace; margin: 20px; }
+        .container { max-width: 800px; }
+        .waveform { width: 100%; height: 150px; border: 2px solid #333; margin: 10px 0; }
+        .controls { margin: 20px 0; }
+        button { padding: 10px; margin: 5px; }
+        .log { background: #f0f0f0; padding: 10px; margin: 10px 0; height: 200px; overflow-y: scroll; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎵 Minimal Peaks.js Test</h1>
+        
+        <div class="controls">
+            <button onclick="testBasicSetup()">1. Test Dependencies</button>
+            <button onclick="testWithFakeData()">2. Test Web Audio</button>
+            <button onclick="testWithBackendData()">3. Test Backend File</button>
+            <button onclick="clearLog()">Clear Log</button>
+        </div>
+        
+        <h3>Overview Waveform:</h3>
+        <div id="overview-waveform" class="waveform"></div>
+        
+        <h3>Zoom Waveform:</h3>
+        <div id="zoom-waveform" class="waveform"></div>
+        
+        <div id="log" class="log">Ready to test...\n</div>
+    </div>
+
+    <script src="/ui/libs/konva.min.js"></script>
+    <script src="/ui/libs/waveform-data.min.js"></script>
+    <script src="/ui/libs/peaks-official.js"></script>
+    <script>
+        let peaksInstance = null;
+        
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `[${timestamp}] ${message}\n`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(message);
+        }
+        
+        function testBasicSetup() {
+            log('=== Testing Basic Setup ===');
+            log(`Konva available: ${typeof Konva !== 'undefined'}`);
+            log(`WaveformData available: ${typeof WaveformData !== 'undefined'}`);
+            log(`peaks available: ${typeof peaks !== 'undefined'}`);
+            
+            const overviewDiv = document.getElementById('overview-waveform');
+            const zoomDiv = document.getElementById('zoom-waveform');
+            
+            log(`Overview div exists: ${!!overviewDiv}`);
+            log(`Zoom div exists: ${!!zoomDiv}`);
+            log(`Overview div dimensions: ${overviewDiv.offsetWidth}x${overviewDiv.offsetHeight}`);
+            log(`Zoom div dimensions: ${zoomDiv.offsetWidth}x${zoomDiv.offsetHeight}`);
+        }
+        
+        function testWithFakeData() {
+            log('=== Testing with Web Audio ===');
+            
+            if (typeof peaks === 'undefined') {
+                log('❌ peaks.js not available');
+                return;
+            }
+            
+            // Clean up previous instance
+            if (peaksInstance) {
+                peaksInstance.destroy();
+                peaksInstance = null;
+                log('🗑️ Destroyed previous instance');
+            }
+            
+            // Create audio element
+            const audioElement = document.createElement('audio');
+            audioElement.src = '/test_audio/VO.wav';
+            audioElement.preload = 'auto';
+            
+            const options = {
+                zoomview: {
+                    container: document.getElementById('zoom-waveform')
+                },
+                overview: {
+                    container: document.getElementById('overview-waveform')
+                },
+                mediaElement: audioElement,
+                webAudio: {
+                    audioContext: new (window.AudioContext || window.webkitAudioContext)(),
+                    scale: 128,
+                    multiChannel: false
+                },
+                keyboard: true,
+                showPlayheadTime: true,
+                zoomWaveformColor: '#4ECDC4',
+                overviewWaveformColor: '#45B7D1'
+            };
+            
+            log('🔄 Initializing peaks.js with Web Audio...');
+            
+            peaks.init(options, function(err, peaks) {
+                if (err) {
+                    log(`❌ peaks initialization failed: ${err.message}`);
+                    return;
+                }
+                
+                log('✅ SUCCESS! peaks.js working with Web Audio!');
+                peaksInstance = peaks;
+                
+                // Load the audio file
+                audioElement.addEventListener('loadedmetadata', function() {
+                    log(`✅ Audio loaded: ${audioElement.duration}s duration`);
+                });
+                
+                audioElement.load();
+            });
+        }
+        
+
+            return data;
+        }
+        
+        async function testWithBackendData() {
+            log('=== Testing with Backend Data ===');
+            
+            try {
+                log('🔄 Fetching data from backend...');
+                const response = await fetch('/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ file_path: '/mnt/2w12-data/audio-sampler-v2/test_audio/VO.wav' })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const result = await response.json();
+                const waveformData = result.analysis_result?.waveform_data;
+                
+                if (!waveformData) {
+                    throw new Error('No waveform data in response');
+                }
+                
+                log(`✅ Got backend data: ${waveformData.overview?.data?.length} overview + ${waveformData.zoom?.data?.length} zoom samples`);
+                
+                // Use Web Audio approach with backend file
+                const audioElement = document.createElement('audio');
+                audioElement.src = '/test_audio/VO.wav';
+                audioElement.preload = 'auto';
+                
+                const options = {
+                    zoomview: {
+                        container: document.getElementById('zoom-waveform')
+                    },
+                    overview: {
+                        container: document.getElementById('overview-waveform')
+                    },
+                    mediaElement: audioElement,
+                    webAudio: {
+                        audioContext: new (window.AudioContext || window.webkitAudioContext)(),
+                        scale: 128,
+                        multiChannel: false
+                    },
+                    keyboard: true,
+                    showPlayheadTime: true,
+                    zoomWaveformColor: '#4ECDC4',
+                    overviewWaveformColor: '#45B7D1'
+                };
+                
+                // Clean up previous instance
+                if (peaksInstance) {
+                    peaksInstance.destroy();
+                    peaksInstance = null;
+                    log('🗑️ Destroyed previous instance');
+                }
+                
+            log('🔄 Initializing peaks.js with backend audio file...');
+            
+            peaks.init(options, function(err, peaks) {
+                if (err) {
+                    log(`❌ peaks initialization failed: ${err.message}`);
+                    return;
+                }
+                
+                log('✅ SUCCESS! peaks.js working with backend audio file!');
+                peaksInstance = peaks;                    
+                    audioElement.addEventListener('loadedmetadata', function() {
+                        log(`✅ Audio loaded: ${audioElement.duration}s duration`);
+                    });
+                    
+                    audioElement.load();
+                });
+                
+            } catch (error) {
+                log(`❌ Backend test failed: ${error.message}`);
+            }
+        }
+                
+                const result = await response.json();
+                const waveformData = result.analysis_result?.waveform_data;
+                
+                if (!waveformData) {
+                    throw new Error('No waveform data in response');
+                }
+                
+                log(`✅ Got backend data: ${waveformData.overview?.data?.length || 0} overview + ${waveformData.zoom?.data?.length || 0} zoom samples`);
+                
+                // Convert to Peaks.js format
+                const peaksData = convertBackendDataToPeaksFormat(waveformData);
+                log(`Converted to Peaks format: ${peaksData.data[0].data.length} + ${peaksData.data[1].data.length} points`);
+                
+                // Destroy existing instance
+                if (peaksInstance) {
+                    peaksInstance.destroy();
+                    peaksInstance = null;
+                    log('🗑️ Destroyed previous instance');
+                }
+                
+                // Initialize Peaks.js
+                peaksInstance = window.Peaks.init({
+                    containers: {
+                        overview: document.getElementById('overview-waveform'),
+                        zoomview: document.getElementById('zoom-waveform')
+                    },
+                    mediaElement: null,
+                    dataUri: null,
+                    waveformData: peaksData,
+                    keyboard: false,
+                    showPlayheadTime: false,
+                    zoomWaveformColor: '#4ECDC4',
+                    overviewWaveformColor: '#45B7D1'
+                });
+                
+                log('✅ Peaks.js initialized with backend data!');
+                
+            } catch (error) {
+                log(`❌ Backend test failed: ${error.message}`);
+            }
+        }
+        
+        function convertBackendDataToPeaksFormat(waveformData) {
+            const overviewData = waveformData.overview?.data || [];
+            const zoomData = waveformData.zoom?.data || [];
+            
+            const overviewPeaks = [];
+            const zoomPeaks = [];
+            
+            // Convert overview data 
+            for (let i = 0; i < overviewData.length; i++) {
+                const value = overviewData[i];
+                overviewPeaks.push(Math.min(value, 0)); // min
+                overviewPeaks.push(Math.max(value, 0)); // max
+            }
+            
+            // Convert zoom data
+            for (let i = 0; i < zoomData.length; i++) {
+                const value = zoomData[i];
+                zoomPeaks.push(Math.min(value, 0)); // min
+                zoomPeaks.push(Math.max(value, 0)); // max
+            }
+            
+            return {
+                version: 2,
+                channels: 1,
+                sample_rate: waveformData.sample_rate || 48000,
+                samples_per_pixel: Math.floor((waveformData.sample_rate || 48000) * (waveformData.duration || 30) / overviewData.length),
+                bits: 8,
+                length: overviewData.length,
+                data: [
+                    {
+                        length: overviewData.length,
+                        data: overviewPeaks
+                    },
+                    {
+                        length: zoomData.length,
+                        data: zoomPeaks
+                    }
+                ]
+            };
+        }
+        
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+        
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+        
+        // Auto-test on load
+        window.addEventListener('load', () => {
+            log('🚀 Page loaded, running basic setup test...');
+            testBasicSetup();
+        });
+    </script>
+</body>
+</html>

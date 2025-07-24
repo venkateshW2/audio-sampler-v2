@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Visual Waveform Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 1000px; }
+        .waveform-container { margin: 20px 0; }
+        .waveform { width: 100%; height: 200px; border: 1px solid #ccc; margin: 10px 0; }
+        .controls { margin: 20px 0; }
+        button { padding: 10px 20px; margin: 5px; }
+        .log { background: #f5f5f5; padding: 10px; margin: 10px 0; height: 150px; overflow-y: scroll; font-size: 12px; }
+        .file-input { margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎵 Visual Waveform Test</h1>
+        
+        <div class="controls">
+            <input type="file" id="fileInput" accept="audio/*" class="file-input">
+            <button onclick="testWithFile()">Test with File Upload</button>
+            <button onclick="testWithBackend()">Test with Backend File</button>
+            <button onclick="clearLog()">Clear Log</button>
+        </div>
+        
+        <div class="waveform-container">
+            <h3>Overview Waveform:</h3>
+            <div id="overview-container" class="waveform"></div>
+            
+            <h3>Zoom Waveform:</h3>
+            <div id="zoom-container" class="waveform"></div>
+        </div>
+        
+        <div id="log" class="log">Ready to test... Drop an audio file or use backend test
+        </div>
+    </div>
+
+    <!-- Load Peaks.js with dependencies -->
+    <script src="/ui/libs/konva.min.js"></script>
+    <script src="/ui/libs/waveform-data.min.js"></script>
+    <script src="/ui/libs/peaks-official.js"></script>
+    
+    <script>
+        let peaksInstance = null;
+        
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `[${timestamp}] ${message}\n`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(message);
+        }
+        
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+        
+        async function testWithBackend() {
+            log('=== Testing Backend File with Waveform Display ===');
+            
+            try {
+                const filePath = '/mnt/2w12-data/audio-sampler-v2/test_audio/VO.wav';
+                log(`🔄 Processing: ${filePath}`);
+                
+                const response = await fetch('/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ file_path: filePath })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const result = await response.json();
+                const waveformData = result.analysis_result?.waveform_data;
+                
+                if (!waveformData) {
+                    throw new Error('No waveform data from backend');
+                }
+                
+                log(`✅ Backend data: ${waveformData.duration}s, ${waveformData.overview?.data?.length} overview samples`);
+                
+                // Create audio element for Peaks.js
+                const audioElement = new Audio();
+                audioElement.src = '../test_audio/VO.wav';
+                audioElement.preload = 'auto';
+                
+                await initPeaksWithAudio(audioElement, waveformData);
+                
+            } catch (error) {
+                log(`❌ Error: ${error.message}`);
+            }
+        }
+        
+        async function testWithFile() {
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                log('❌ Please select an audio file');
+                return;
+            }
+            
+            log(`🔄 Processing file: ${file.name} (${(file.size/1024/1024).toFixed(1)}MB)`);
+            
+            try {
+                // Upload file for analysis
+                const formData = new FormData();
+                formData.append('file', file);
+                
+                const response = await fetch('/api/analyze/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const result = await response.json();
+                const waveformData = result.analysis_result?.waveform_data;
+                
+                if (!waveformData) {
+                    throw new Error('No waveform data from backend');
+                }
+                
+                log(`✅ File processed: ${waveformData.duration}s`);
+                
+                // Create audio element for Peaks.js
+                const audioElement = new Audio();
+                audioElement.src = URL.createObjectURL(file);
+                audioElement.preload = 'auto';
+                
+                await initPeaksWithAudio(audioElement, waveformData);
+                
+            } catch (error) {
+                log(`❌ Error: ${error.message}`);
+            }
+        }
+        
+        async function initPeaksWithAudio(audioElement, waveformData) {
+            log('🔄 Initializing Peaks.js with waveform display...');
+            
+            // Clean up previous instance
+            if (peaksInstance) {
+                peaksInstance.destroy();
+                peaksInstance = null;
+                log('🗑️ Destroyed previous instance');
+            }
+            
+            const options = {
+                zoomview: {
+                    container: document.getElementById('zoom-container')
+                },
+                overview: {
+                    container: document.getElementById('overview-container')
+                },
+                mediaElement: audioElement,
+                webAudio: {
+                    audioContext: new (window.AudioContext || window.webkitAudioContext)(),
+                    scale: 128,
+                    multiChannel: false
+                },
+                keyboard: true,
+                showPlayheadTime: true,
+                zoomWaveformColor: '#4ECDC4',
+                overviewWaveformColor: '#45B7D1',
+                pointMarkerColor: '#FF6B6B'
+            };
+            
+            peaks.init(options, function(err, peaks) {
+                if (err) {
+                    log(`❌ Peaks initialization failed: ${err.message}`);
+                    return;
+                }
+                
+                log('✅ SUCCESS! Peaks.js initialized with waveform display!');
+                peaksInstance = peaks;
+                
+                // Load audio and generate waveform
+                audioElement.addEventListener('loadedmetadata', function() {
+                    log(`✅ Audio loaded: ${audioElement.duration}s`);
+                    log('🎵 Waveform should now be visible above!');
+                });
+                
+                audioElement.addEventListener('error', function(e) {
+                    log(`❌ Audio loading error: ${e.message || 'Unknown error'}`);
+                });
+                
+                audioElement.load();
+            });
+        }
+        
+        // File input handler
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            if (e.target.files.length > 0) {
+                testWithFile();
+            }
+        });
+        
+        // Auto-test on load
+        window.addEventListener('load', () => {
+            log('🚀 Visual waveform test page loaded');
+            log('📁 Available test files:');
+            log('  - VO.wav (5.7MB)');
+            log('  - MVS-MASTER.wav (44.8MB)');
+            log('  - Upload your own file');
+        });
+    </script>
+</body>
+</html>

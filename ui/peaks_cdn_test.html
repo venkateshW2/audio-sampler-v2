@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Peaks.js CDN Test</title>
+    <style>
+        body { font-family: monospace; margin: 20px; }
+        .container { max-width: 800px; }
+        .waveform { width: 100%; height: 150px; border: 2px solid #333; margin: 10px 0; }
+        .controls { margin: 20px 0; }
+        button { padding: 10px; margin: 5px; }
+        .log { background: #f0f0f0; padding: 10px; margin: 10px 0; height: 200px; overflow-y: scroll; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎵 Peaks.js CDN Test</h1>
+        
+        <div class="controls">
+            <button onclick="testCDNVersion()">Test CDN Version</button>
+            <button onclick="testWithBackendData()">Test with Backend Data</button>
+            <button onclick="clearLog()">Clear Log</button>
+        </div>
+        
+        <h3>Overview Waveform:</h3>
+        <div id="overview-waveform" class="waveform"></div>
+        
+        <h3>Zoom Waveform:</h3>
+        <div id="zoom-waveform" class="waveform"></div>
+        
+        <div id="log" class="log">Ready to test CDN version...\n</div>
+    </div>
+
+    <!-- Use CDN version instead of local -->
+    <script src="https://unpkg.com/peaks.js@3.4.1/dist/peaks.js"></script>
+    <script>
+        let peaksInstance = null;
+        
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `[${timestamp}] ${message}\n`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        
+        function testCDNVersion() {
+            log('=== Testing CDN Version ===');
+            log(`window.peaks available: ${!!window.peaks}`);
+            log(`window.Peaks available: ${!!window.Peaks}`);
+            
+            // The CDN version exposes as window.peaks
+            if (window.peaks && !window.Peaks) {
+                window.Peaks = window.peaks;
+                log('✅ Mapped window.peaks to window.Peaks');
+            }
+            
+            const overviewDiv = document.getElementById('overview-waveform');
+            const zoomDiv = document.getElementById('zoom-waveform');
+            
+            log(`Overview div exists: ${!!overviewDiv}`);
+            log(`Zoom div exists: ${!!zoomDiv}`);
+            log(`Overview div dimensions: ${overviewDiv.offsetWidth}x${overviewDiv.offsetHeight}`);
+            
+            // Test with simple fake data
+            try {
+                if (peaksInstance) {
+                    peaksInstance.destroy();
+                    log('🗑️ Destroyed previous instance');
+                }
+                
+                const fakeData = {
+                    version: 2,
+                    channels: 1,
+                    sample_rate: 44100,
+                    samples_per_pixel: 512,
+                    bits: 8,
+                    length: 100,
+                    data: [
+                        {
+                            length: 100,
+                            data: generateSimpleWaveform(100)
+                        }
+                    ]
+                };
+                
+                log(`Generated simple fake data: ${fakeData.data[0].data.length} points`);
+                
+                peaksInstance = window.Peaks.init({
+                    containers: {
+                        overview: overviewDiv,
+                        zoomview: zoomDiv
+                    },
+                    mediaElement: null,
+                    waveformData: fakeData,
+                    keyboard: false,
+                    showPlayheadTime: false,
+                    zoomWaveformColor: '#4ECDC4',
+                    overviewWaveformColor: '#45B7D1'
+                });
+                
+                log('✅ CDN Peaks.js working with simple data!');
+                
+            } catch (error) {
+                log(`❌ CDN test failed: ${error.message}`);
+                log(`Stack: ${error.stack}`);
+            }
+        }
+        
+        function generateSimpleWaveform(length) {
+            const data = [];
+            for (let i = 0; i < length; i++) {
+                // Simple sine wave
+                const t = i / length * Math.PI * 4;
+                const value = Math.sin(t) * 0.8;
+                
+                // Peaks.js expects min/max pairs
+                data.push(Math.min(value, 0)); // min
+                data.push(Math.max(value, 0)); // max
+            }
+            return data;
+        }
+        
+        async function testWithBackendData() {
+            log('=== Testing CDN with Backend Data ===');
+            
+            try {
+                log('🔄 Fetching data from backend...');
+                const response = await fetch('/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ file_path: '/mnt/2w12-data/audio-sampler-v2/test_audio/VO.wav' })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const result = await response.json();
+                const waveformData = result.analysis_result?.waveform_data;
+                
+                if (!waveformData) {
+                    throw new Error('No waveform data in response');
+                }
+                
+                log(`✅ Got backend data: ${waveformData.overview?.data?.length || 0} overview + ${waveformData.zoom?.data?.length || 0} zoom samples`);
+                
+                // Convert to Peaks.js format
+                const peaksData = convertBackendDataToPeaksFormat(waveformData);
+                log(`Converted to CDN Peaks format: ${peaksData.data[0].data.length} points`);
+                
+                // Destroy existing instance
+                if (peaksInstance) {
+                    peaksInstance.destroy();
+                    log('🗑️ Destroyed previous instance');
+                }
+                
+                // Initialize CDN Peaks.js
+                peaksInstance = window.Peaks.init({
+                    containers: {
+                        overview: document.getElementById('overview-waveform'),
+                        zoomview: document.getElementById('zoom-waveform')
+                    },
+                    mediaElement: null,
+                    waveformData: peaksData,
+                    keyboard: false,
+                    showPlayheadTime: false,
+                    zoomWaveformColor: '#4ECDC4',
+                    overviewWaveformColor: '#45B7D1'
+                });
+                
+                log('✅ CDN Peaks.js working with backend data!');
+                
+            } catch (error) {
+                log(`❌ CDN backend test failed: ${error.message}`);
+            }
+        }
+        
+        function convertBackendDataToPeaksFormat(waveformData) {
+            const overviewData = waveformData.overview?.data || [];
+            
+            const overviewPeaks = [];
+            
+            // Convert overview data 
+            for (let i = 0; i < overviewData.length; i++) {
+                const value = overviewData[i];
+                overviewPeaks.push(Math.min(value, 0)); // min
+                overviewPeaks.push(Math.max(value, 0)); // max
+            }
+            
+            return {
+                version: 2,
+                channels: 1,
+                sample_rate: waveformData.sample_rate || 48000,
+                samples_per_pixel: Math.floor((waveformData.sample_rate || 48000) * (waveformData.duration || 30) / overviewData.length),
+                bits: 8,
+                length: overviewData.length,
+                data: [
+                    {
+                        length: overviewData.length,
+                        data: overviewPeaks
+                    }
+                ]
+            };
+        }
+        
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+        
+        // Auto-test on load
+        window.addEventListener('load', () => {
+            log('🚀 CDN version loaded, testing...');
+            setTimeout(() => testCDNVersion(), 500);
+        });
+    </script>
+</body>
+</html>

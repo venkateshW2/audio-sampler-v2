@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Basic Peaks.js Test</title>
+    <style>
+        body { font-family: monospace; margin: 20px; }
+        .container { max-width: 800px; }
+        .waveform { width: 100%; height: 150px; border: 2px solid #333; margin: 10px 0; }
+        .controls { margin: 20px 0; }
+        button { padding: 10px; margin: 5px; }
+        .log { background: #f0f0f0; padding: 10px; margin: 10px 0; height: 200px; overflow-y: scroll; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎵 Basic Peaks.js Test</h1>
+        
+        <div class="controls">
+            <button onclick="testDependencies()">Test Dependencies</button>
+            <button onclick="testBackend()">Test Backend Integration</button>
+            <button onclick="clearLog()">Clear Log</button>
+        </div>
+        
+        <h3>Overview Waveform:</h3>
+        <div id="overview-waveform" class="waveform"></div>
+        
+        <h3>Zoom Waveform:</h3>
+        <div id="zoom-waveform" class="waveform"></div>
+        
+        <div id="log" class="log">Ready to test...
+        </div>
+    </div>
+
+    <!-- Load official Peaks.js with dependencies -->
+    <script src="/ui/libs/konva.min.js"></script>
+    <script src="/ui/libs/waveform-data.min.js"></script>
+    <script src="/ui/libs/peaks-official.js"></script>
+    
+    <script>
+        let peaksInstance = null;
+        
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `[${timestamp}] ${message}\n`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(message);
+        }
+        
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+        
+        function testDependencies() {
+            log('=== Testing Dependencies ===');
+            log(`Konva: ${typeof Konva}`);
+            log(`WaveformData: ${typeof WaveformData}`);
+            log(`peaks: ${typeof peaks}`);
+            
+            const overviewDiv = document.getElementById('overview-waveform');
+            const zoomDiv = document.getElementById('zoom-waveform');
+            
+            log(`Overview div exists: ${!!overviewDiv}`);
+            log(`Zoom div exists: ${!!zoomDiv}`);
+        }
+        
+        async function testBackend() {
+            log('=== Testing Backend Integration ===');
+            
+            try {
+                log('🔄 Fetching backend analysis...');
+                const response = await fetch('/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ file_path: '/mnt/2w12-data/audio-sampler-v2/test_audio/VO.wav' })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const result = await response.json();
+                const waveformData = result.analysis_result?.waveform_data;
+                
+                if (!waveformData) {
+                    log('❌ No waveform data from backend');
+                    return;
+                }
+                
+                log(`✅ Backend data received:`);
+                log(`  Duration: ${waveformData.duration}s`);
+                log(`  Overview samples: ${waveformData.overview?.data?.length || 0}`);
+                log(`  Zoom samples: ${waveformData.zoom?.data?.length || 0}`);
+                log(`  Sample rate: ${waveformData.sample_rate}Hz`);
+                
+                // Display waveform data info
+                log('📊 Waveform data structure verified!');
+                
+            } catch (error) {
+                log(`❌ Backend test failed: ${error.message}`);
+            }
+        }
+        
+        // Auto-test on load
+        window.addEventListener('load', () => {
+            log('🚀 Basic Peaks.js test page loaded');
+            testDependencies();
+        });
+    </script>
+</body>
+</html>

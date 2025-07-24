@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple Peaks.js Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 800px; }
+        .waveform { width: 100%; height: 150px; border: 2px solid #333; margin: 10px 0; }
+        .controls { margin: 20px 0; }
+        button { padding: 10px; margin: 5px; }
+        .log { background: #f0f0f0; padding: 10px; margin: 10px 0; height: 200px; overflow-y: scroll; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎵 Simple Peaks.js Test</h1>
+        
+        <div class="controls">
+            <button onclick="testPeaks()">Test Peaks.js</button>
+            <button onclick="clearLog()">Clear Log</button>
+        </div>
+        
+        <h3>Overview Waveform:</h3>
+        <div id="overview-waveform" class="waveform"></div>
+        
+        <h3>Zoom Waveform:</h3>
+        <div id="zoom-waveform" class="waveform"></div>
+        
+        <div id="log" class="log">Ready to test...
+        </div>
+        
+        <!-- Hidden audio element -->
+        <audio id="audio" style="display: none;" controls>
+            <source src="/test_audio/VO.wav" type="audio/wav">
+        </audio>
+    </div>
+
+    <!-- Load official Peaks.js with dependencies -->
+    <script src="/ui/libs/konva.min.js"></script>
+    <script src="/ui/libs/waveform-data.min.js"></script>
+    <script src="/ui/libs/peaks-official.js"></script>
+    
+    <script>
+        let peaksInstance = null;
+        
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `[${timestamp}] ${message}\n`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(message);
+        }
+        
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+        
+        function testPeaks() {
+            log('=== Testing Peaks.js ===');
+            
+            // Check dependencies
+            log(`Konva: ${typeof Konva}`);
+            log(`WaveformData: ${typeof WaveformData}`);
+            log(`peaks: ${typeof peaks}`);
+            
+            if (typeof peaks === 'undefined') {
+                log('❌ peaks.js not loaded');
+                return;
+            }
+            
+            // Clean up previous instance
+            if (peaksInstance) {
+                peaksInstance.destroy();
+                peaksInstance = null;
+                log('🗑️ Destroyed previous instance');
+            }
+            
+            const audioElement = document.getElementById('audio');
+            const options = {
+                zoomview: {
+                    container: document.getElementById('zoom-waveform')
+                },
+                overview: {
+                    container: document.getElementById('overview-waveform')
+                },
+                mediaElement: audioElement,
+                webAudio: {
+                    audioContext: new (window.AudioContext || window.webkitAudioContext)(),
+                    scale: 128,
+                    multiChannel: false
+                },
+                keyboard: true,
+                showPlayheadTime: true,
+                zoomWaveformColor: '#4ECDC4',
+                overviewWaveformColor: '#45B7D1'
+            };
+            
+            log('🔄 Initializing peaks.js...');
+            
+            peaks.init(options, function(err, peaks) {
+                if (err) {
+                    log(`❌ Error: ${err.message}`);
+                    return;
+                }
+                
+                log('✅ SUCCESS! peaks.js initialized!');
+                peaksInstance = peaks;
+                
+                // Load audio
+                audioElement.addEventListener('loadedmetadata', function() {
+                    log(`✅ Audio loaded: ${audioElement.duration}s`);
+                });
+                
+                audioElement.load();
+            });
+        }
+        
+        // Auto-test on load
+        window.addEventListener('load', () => {
+            log('🚀 Page loaded');
+        });
+    </script>
+</body>
+</html>
