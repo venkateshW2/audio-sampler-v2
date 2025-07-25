@@ -6,9 +6,13 @@
     <title>Audio Intelligence Sampler v2</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <!-- 2w12.one inspired fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100;200;300;400;500;600;700;800;900&family=JetBrains+Mono:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800&display=swap" rel="stylesheet">
 </head>
 <body>
-    <div id="app">
+    <div id="audioApp">
         <!-- Header -->
         <header class="app-header">
             <div class="logo">
@@ -26,132 +30,175 @@
             </div>
         </header>
 
-        <!-- Main Layout -->
+        <!-- Main Layout - True Three-Panel Flexbox -->
         <div class="main-layout">
-            <!-- Upload Area / File Browser -->
-            <aside class="file-browser">
-                <div class="browser-header">
-                    <h3>Audio Analysis</h3>
-                    <button id="upload-btn" class="btn btn-sm">
+            <!-- Left Panel: File Browser & Upload -->
+            <aside class="left-panel">
+                <div class="panel-header">
+                    <span class="panel-title">AUDIO ANALYSIS</span>
+                    <button id="upload-btn" class="upload-trigger">
                         <i class="fas fa-upload"></i>
                     </button>
                 </div>
                 
                 <!-- Upload Area -->
-                <div class="upload-area" id="uploadArea">
+                <div class="upload-zone" id="uploadArea">
                     <div class="upload-content">
                         <div class="upload-icon"><i class="fas fa-file-audio"></i></div>
-                        <p>Drop audio files here or click to browse</p>
-                        <p class="upload-hint">Supports: .wav, .mp3, .flac, .m4a</p>
+                        <p class="upload-text">DROP AUDIO FILES</p>
+                        <p class="upload-hint">wav, mp3, flac, m4a</p>
                         <input type="file" id="fileInput" accept="audio/*" style="display: none;">
                         <button class="browse-btn" onclick="document.getElementById('fileInput').click()">
-                            Browse Files
+                            BROWSE
                         </button>
                     </div>
                 </div>
                 
                 <!-- Path Input -->
-                <div class="path-input">
-                    <label for="filePath">Or enter file path:</label>
-                    <div class="input-group">
-                        <input type="text" id="filePath" placeholder="e.g., /path/to/audio/file.wav">
-                        <button id="analyzePathBtn">Analyze</button>
+                <div class="path-section">
+                    <label class="path-label">FILE PATH:</label>
+                    <div class="path-input-group">
+                        <input type="text" id="filePath" placeholder="/path/to/audio.wav" class="path-input">
+                        <button id="analyzePathBtn" class="analyze-btn">ANALYZE</button>
                     </div>
                 </div>
 
                 <!-- System Status -->
-                <div class="system-status">
-                    <h4>System Status</h4>
-                    <div class="status-grid">
-                        <div class="status-item">
-                            <label>Engine:</label>
-                            <span id="engineStatus">Loading...</span>
+                <div class="status-section">
+                    <div class="status-header">SYSTEM STATUS</div>
+                    <div class="status-items">
+                        <div class="status-row">
+                            <span class="status-label">ENGINE:</span>
+                            <span id="engineStatus" class="status-value">Loading...</span>
                         </div>
-                        <div class="status-item">
-                            <label>Plugins:</label>
-                            <span id="pluginStatus">Loading...</span>
+                        <div class="status-row">
+                            <span class="status-label">PLUGINS:</span>
+                            <span id="pluginStatus" class="status-value">Loading...</span>
                         </div>
+                    </div>
+                </div>
+
+                <!-- Segment List Container -->
+                <div class="segments-section">
+                    <div class="segments-header">SEGMENTS</div>
+                    <div id="segmentsList" class="segments-list">
+                        <!-- RegionManager will populate this -->
                     </div>
                 </div>
             </aside>
 
-            <!-- Timeline Area -->
-            <main class="timeline-area">
+            <!-- Center Panel: Waveform Timeline -->
+            <main class="center-panel">
                 <!-- Transport Controls -->
-                <div class="transport-controls" id="transportControls" style="display: none;">
-                    <div class="transport-buttons">
-                        <button id="playPause" class="btn">
+                <div class="transport-bar" id="transportControls">
+                    <div class="transport-left">
+                        <button id="playPause" class="transport-btn">
                             <i class="fas fa-play"></i>
                         </button>
-                        <button id="stop" class="btn">
+                        <button id="stop" class="transport-btn">
                             <i class="fas fa-stop"></i>
                         </button>
                     </div>
-                    <div class="time-display">
-                        <span id="currentTime">00:00:00</span> / 
-                        <span id="totalTime">00:00:00</span>
+                    
+                    <div class="transport-center">
+                        <div class="time-display">
+                            <span id="currentTime">00:00</span>
+                            <span class="time-separator">/</span>
+                            <span id="totalTime">00:00</span>
+                        </div>
                     </div>
-                    <div class="tempo-display">
-                        <label>BPM:</label>
-                        <span id="tempoValue">--</span>
-                    </div>
-                    <div class="key-display">
-                        <label>Key:</label>
-                        <span id="keyValue">--</span>
+                    
+                    <div class="transport-right">
+                        <div class="analysis-display">
+                            <span class="analysis-label">BPM:</span>
+                            <span id="tempoValue" class="analysis-value">--</span>
+                        </div>
+                        <div class="analysis-display">
+                            <span class="analysis-label">KEY:</span>
+                            <span id="keyValue" class="analysis-value">--</span>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Progress Section -->
-                <div class="progress-section" id="progressSection" style="display: none;">
+                <!-- Progress Indicator -->
+                <div class="progress-indicator" id="progressSection" style="display: none;">
                     <div class="progress-bar">
                         <div class="progress-fill" id="progressFill"></div>
                     </div>
-                    <p id="progressText">Processing...</p>
+                    <div class="progress-text" id="progressText">PROCESSING...</div>
                 </div>
 
-                <!-- Waveform Display Container -->
-                <div id="waveformContainer" class="waveform-container" style="display: none;">
+                <!-- Waveform Display - Peaks.js Integration -->
+                <div class="waveform-section" id="waveformContainer">
                     <div class="waveform-header">
-                        <h3>Waveform Analysis</h3>
+                        <span class="waveform-title">WAVEFORM ANALYSIS</span>
                         <div class="waveform-controls">
-                            <button id="zoomIn" class="btn btn-sm"><i class="fas fa-search-plus"></i></button>
-                            <button id="zoomOut" class="btn btn-sm"><i class="fas fa-search-minus"></i></button>
-                            <button id="fitToScreen" class="btn btn-sm"><i class="fas fa-expand-arrows-alt"></i></button>
+                            <button id="zoomIn" class="waveform-control-btn">
+                                <i class="fas fa-search-plus"></i>
+                            </button>
+                            <button id="zoomOut" class="waveform-control-btn">
+                                <i class="fas fa-search-minus"></i>
+                            </button>
+                            <button id="fitToScreen" class="waveform-control-btn">
+                                <i class="fas fa-expand-arrows-alt"></i>
+                            </button>
                         </div>
                     </div>
-                    <div id="overviewContainer" class="overview-container"></div>
-                    <div id="zoomviewContainer" class="zoomview-container"></div>
-                </div>
-
-                <!-- Analysis Results -->
-                <div class="analysis-section" id="resultsPanel" style="display: none;">
-                    <h3>Analysis Results</h3>
-                    <div id="resultsContent">
-                        <!-- Results will be populated here -->
+                    
+                    <!-- Peaks.js Containers -->
+                    <div class="peaks-container">
+                        <div id="overview-container" class="overview-waveform">
+                            <!-- Overview waveform will be rendered here -->
+                        </div>
+                        <div id="zoom-container" class="zoomview-waveform">
+                            <!-- Detailed waveform will be rendered here -->
+                        </div>
                     </div>
                 </div>
 
-                <!-- Timeline Classification Results -->
-                <div class="timeline-results" id="timelineResults" style="display: none;">
-                    <h3>Timeline Classification</h3>
-                    <div id="timelineSegments" class="timeline-segments">
-                        <!-- Timeline segments will be displayed here -->
+                <!-- Empty State -->
+                <div class="empty-waveform" id="emptyWaveform">
+                    <div class="empty-content">
+                        <i class="fas fa-waveform-lines empty-icon"></i>
+                        <p class="empty-text">UPLOAD AUDIO TO VIEW WAVEFORM</p>
+                        <p class="empty-hint">Drag and drop or browse files to begin analysis</p>
                     </div>
                 </div>
             </main>
 
-            <!-- Properties Panel -->
-            <aside class="properties-panel">
-                <h3>Properties</h3>
-                <div id="propertiesContent">
-                    <p class="empty-state">Upload a file to see analysis details</p>
+            <!-- Right Panel: Properties & Analysis -->
+            <aside class="right-panel">
+                <div class="panel-header">
+                    <span class="panel-title">ANALYSIS</span>
+                </div>
+                
+                <!-- File Properties -->
+                <div class="properties-section">
+                    <div class="properties-header">FILE INFO</div>
+                    <div id="propertiesContent" class="properties-content">
+                        <div class="property-empty">
+                            <span class="empty-message">NO FILE LOADED</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Analysis Results -->
+                <div class="classification-section">
+                    <div class="classification-header">ANALYSIS</div>
+                    <div id="propertiesContent" class="classification-content">
+                        <div class="classification-empty">
+                            <span class="empty-message">AWAITING ANALYSIS</span>
+                        </div>
+                    </div>
                 </div>
                 
                 <!-- Database Stats -->
                 <div class="database-section">
-                    <h4>Database</h4>
-                    <div id="databaseStats" class="database-stats">
-                        <p>Loading statistics...</p>
+                    <div class="database-header">DATABASE</div>
+                    <div id="databaseStats" class="database-content">
+                        <div class="database-loading">
+                            <span class="loading-message">LOADING STATS...</span>
+                        </div>
                     </div>
                 </div>
             </aside>
@@ -188,7 +235,79 @@
     </div>
 
     <!-- Scripts -->
-    <script src="https://cdn.jsdelivr.net/npm/peaks.js@3.0.0/dist/peaks.js"></script>
-    <script src="app.js"></script>
+    <!-- Load Peaks.js with dependencies (working configuration from test) -->
+    <script src="/ui/libs/konva.min.js"></script>
+    <script src="/ui/libs/waveform-data.min.js"></script>
+    <script src="/ui/libs/peaks-official.js"></script>
+    
+    <script>
+        console.log('🔄 Loading Peaks.js with dependencies...');
+        
+        // Verify Peaks.js loaded correctly
+        function verifyPeaksLoaded() {
+            if (typeof peaks !== 'undefined') {
+                console.log('✅ Peaks.js loaded successfully with dependencies');
+                return true;
+            } else {
+                console.error('❌ Peaks.js failed to load');
+                return false;
+            }
+        }
+        
+        // Load app after verifying Peaks.js
+        function loadApp() {
+            const peaksAvailable = verifyPeaksLoaded();
+            console.log('🚀 Starting app initialization...', peaksAvailable ? 'with Peaks.js' : 'without Peaks.js');
+            
+            // Set global flag for app to know Peaks.js is available
+            window.peaksAvailable = peaksAvailable;
+            
+            import('./app.js')
+                .then(appModule => {
+                    console.log('✅ app.js module loaded successfully');
+                    
+                    // Initialize app only if not already initialized
+                    if (!window.app) {
+                        console.log('🚀 Initializing AudioSamplerApp from module...');
+                        try {
+                            console.log('📦 Creating AudioSamplerApp instance...');
+                            window.app = new appModule.AudioSamplerApp();
+                            console.log('📦 AudioSamplerApp constructor completed');
+                            
+                            // Wait a moment for async initialization to complete
+                            setTimeout(() => {
+                                if (window.app.isInitialized) {
+                                    window.appLoaded = true;
+                                    console.log('✅ AudioSamplerApp fully initialized');
+                                } else {
+                                    window.appLoaded = false;
+                                    console.warn('⚠️ AudioSamplerApp created but not initialized');
+                                }
+                            }, 3000);
+                            
+                        } catch (error) {
+                            console.error('❌ AudioSamplerApp constructor failed:', error);
+                            console.error('❌ Error stack:', error.stack);
+                            window.appLoaded = false;
+                        }
+                    } else {
+                        console.log('⚠️ window.app already exists');
+                        window.appLoaded = true;
+                    }
+                })
+                .catch(err => {
+                    console.error('❌ Failed to load app.js:', err);
+                    console.error('Error details:', err.stack);
+                    window.appLoaded = false;
+                });
+        }
+        
+        // Wait for DOM to be ready before loading app
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', loadApp);
+        } else {
+            loadApp();
+        }
+    </script>
 </body>
 </html>
