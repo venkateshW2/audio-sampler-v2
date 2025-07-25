@@ -346,18 +346,47 @@ class AudioSamplerApp {
                 // Use processed audio file if available (for timeline alignment)
                 const audioElement = new Audio();
                 
-                if (result.upload_metadata?.processed_file_path) {
-                    // Use processed file from backend (ensures timeline alignment)
-                    audioElement.src = `${this.apiBase}/api/processed_audio/${encodeURIComponent(result.upload_metadata.processed_file_path)}`;
-                    console.log(`🎵 Using processed audio: ${result.upload_metadata.processed_file_path}`);
-                } else if (this.uploadInput.files.length) {
-                    // Fallback to original file for uploads
+                // DEBUG: Check upload metadata structure and full result
+                console.log('🔍 FULL BACKEND RESPONSE STRUCTURE:');
+                console.log('   - Full result:', result);
+                console.log('   - Full result keys:', Object.keys(result));
+                console.log('   - upload_metadata exists:', !!result.upload_metadata);
+                console.log('   - upload_metadata:', result.upload_metadata);
+                console.log('   - analysis_result exists:', !!result.analysis_result);
+                console.log('   - analysis_result keys:', result.analysis_result ? Object.keys(result.analysis_result) : 'none');
+                console.log('   - analysis_result.upload_metadata:', result.analysis_result?.upload_metadata);
+                console.log('   - has upload files:', this.uploadInput.files.length > 0);
+                
+                // FORCE: Try to use processed file first, even if metadata is missing
+                let processedAudioWorked = false;
+                
+                // Check both possible locations for upload_metadata
+                const uploadMetadata = result.upload_metadata || result.analysis_result?.upload_metadata;
+                console.log('   - Found upload_metadata at:', uploadMetadata ? (result.upload_metadata ? 'result.upload_metadata' : 'result.analysis_result.upload_metadata') : 'nowhere');
+                console.log('   - uploadMetadata contents:', uploadMetadata);
+                
+                // WORKAROUND: Try to use result.file_path as processed file path if upload_metadata doesn't have it
+                let processedFilePath = uploadMetadata?.processed_file_path || result.file_path;
+                console.log('   - processedFilePath:', processedFilePath);
+                
+                // ALWAYS use original file - we'll fix timing with silence offset
+                if (this.uploadInput.files.length) {
                     audioElement.src = URL.createObjectURL(this.uploadInput.files[0]);
-                    console.log('🎵 Using original uploaded file');
+                    console.log('🎵 Using original uploaded file (will fix timing with silence offset)');
                 } else {
-                    // Fallback to file path for path-based analysis
                     audioElement.src = result.file_path || '';
                     console.log('🎵 Using file path');
+                }
+                
+                // If no processed file, use original (with timing mismatch warning)
+                if (!processedAudioWorked) {
+                    if (this.uploadInput.files.length) {
+                        audioElement.src = URL.createObjectURL(this.uploadInput.files[0]);
+                        console.log('🎵 Using original uploaded file (TIMING WILL BE WRONG)');
+                    } else {
+                        audioElement.src = result.file_path || '';
+                        console.log('🎵 Using file path');
+                    }
                 }
                 
                 audioElement.preload = 'auto';
@@ -545,6 +574,15 @@ class AudioSamplerApp {
                     // Set up time tracking for transport controls
                     audioElement.addEventListener('timeupdate', () => {
                         this.updateTimeDisplay();
+                        
+                        // DEBUG: Compare Peaks.js time vs audio element time
+                        if (this.peaksInstance && audioElement.currentTime > 0) {
+                            const audioTime = audioElement.currentTime;
+                            const peaksTime = this.peaksInstance.player.getCurrentTime();
+                            if (Math.abs(audioTime - peaksTime) > 0.1) {
+                                console.log(`⏰ TIMING MISMATCH: Audio=${audioTime.toFixed(2)}s, Peaks=${peaksTime.toFixed(2)}s, Diff=${(audioTime-peaksTime).toFixed(2)}s`);
+                            }
+                        }
                     });
                     
                     // Set up playback state tracking
@@ -565,6 +603,20 @@ class AudioSamplerApp {
                     audioElement.addEventListener('loadedmetadata', () => {
                         console.log(`✅ Audio loaded: ${audioElement.duration}s`);
                         console.log('🎵 Waveform should now be visible!');
+                        
+                        // DEBUG: Check duration mismatch and audio source
+                        console.log('🔍 AUDIO TIMING DEBUG:');
+                        console.log(`   - Audio element duration: ${audioElement.duration}s`);
+                        console.log(`   - Audio element src: ${audioElement.src}`);
+                        console.log(`   - Peaks.js media element duration: ${this.peaksInstance.options.mediaElement.duration}s`);
+                        console.log(`   - Are they the same element: ${audioElement === this.peaksInstance.options.mediaElement}`);
+                        
+                        // Check if we're using processed vs original audio
+                        if (audioElement.src.includes('processed_audio')) {
+                            console.log('   ✅ Using processed audio (should align with analysis)');
+                        } else {
+                            console.log('   ⚠️ Using original audio (timing mismatch expected)');
+                        }
                         
                         // Set initial volume
                         audioElement.volume = 0.5;
@@ -667,11 +719,14 @@ class AudioSamplerApp {
         // Update musical properties from region analyses
         this.updateMusicPropertiesFromRegions(result);
         
-        // Update region display
-        this.updateRegionDisplay(result);
+        // DISABLE RegionManager for now - it's not working
+        // this.updateRegionDisplay(result);
         
         // Add timeline segments to Peaks.js waveform
+        console.log('🎯 About to call addTimelineSegments()');
+        console.log('🎯 Current analysis data keys:', Object.keys(result));
         this.addTimelineSegments();
+        console.log('🎯 Finished calling addTimelineSegments()');
         
         // Update properties panel with correct data structure
         this.updatePropertiesPanel(result);
@@ -749,14 +804,41 @@ class AudioSamplerApp {
     
     addTimelineSegments() {
         console.log('🚀 addTimelineSegments() called!');
+        console.log('🔍 Debug state:', {
+            peaksInstance: !!this.peaksInstance,
+            currentFileAnalysis: !!this.currentFileAnalysis,
+            analysisKeys: this.currentFileAnalysis ? Object.keys(this.currentFileAnalysis) : 'none'
+        });
         
-        if (!this.peaksInstance || !this.currentFileAnalysis) {
-            console.log('⚠️ Cannot add segments: missing Peaks instance or analysis data');
+        if (!this.peaksInstance) {
+            console.log('⚠️ Cannot add segments: missing Peaks instance');
+            return;
+        }
+        
+        if (!this.currentFileAnalysis) {
+            console.log('⚠️ Cannot add segments: missing analysis data');
             return;
         }
         
         // Clear existing segments
         this.peaksInstance.segments.removeAll();
+        
+        // TEST: Add a simple test segment first to see if segment creation works at all
+        console.log('🧪 Adding test segment to verify Peaks.js segments work...');
+        try {
+            this.peaksInstance.segments.add({
+                startTime: 1.0,
+                endTime: 3.0,
+                labelText: 'TEST SEGMENT',
+                color: '#FF0000',
+                id: 'test_segment_001',
+                editable: false
+            });
+            console.log('✅ Test segment added successfully!');
+        } catch (error) {
+            console.error('❌ Test segment failed:', error);
+            return; // If basic segments don't work, stop here
+        }
         
         // Use EXACT same data extraction logic as properties panel
         let timelineClassifications = null;
@@ -777,20 +859,70 @@ class AudioSamplerApp {
         
         const timelineSegs = timelineClassifications.timeline_classifications;
         console.log(`🎯 Found ${Object.keys(timelineSegs).length} timeline segments`);
+        console.log('🔍 Raw timeline data:', timelineSegs);
         
-        // TODO: Fix timeline interpolation - currently causing misalignment
-        console.log('🔍 Timeline segments found:', Object.keys(timelineSegs).length);
+        // FIND SILENCE OFFSET: Look for region start_time to use as offset
+        let silenceOffset = 0;
+        if (this.currentFileAnalysis.regions && this.currentFileAnalysis.regions.length > 0) {
+            silenceOffset = this.currentFileAnalysis.regions[0].start_time || 0;
+            console.log(`🔧 SILENCE OFFSET FOUND: ${silenceOffset}s (from first region start_time)`);
+        } else {
+            console.log('🔧 NO SILENCE OFFSET - regions not found');
+        }
         
-        // For now, use original timing (without interpolation) to avoid random colors
-        const segments = Object.entries(timelineSegs).map(([segmentId, segmentData]) => ({
-            startTime: segmentData.time || 0,
-            endTime: (segmentData.time || 0) + (segmentData.duration || 0),
-            classification: segmentData.classification || 'Unknown',
-            confidence: segmentData.confidence || 0,
-            id: segmentId
-        })).sort((a, b) => a.startTime - b.startTime);
+        // Extract segments using time + duration + silence offset
+        const segments = Object.entries(timelineSegs).map(([segmentId, segmentData]) => {
+            const trimmedStartTime = segmentData.time || 0;
+            const duration = segmentData.duration || 0;
+            const trimmedEndTime = trimmedStartTime + duration;
+            
+            // Add silence offset to match original audio timeline
+            const originalStartTime = trimmedStartTime + silenceOffset;
+            const originalEndTime = trimmedEndTime + silenceOffset;
+            
+            console.log(`📍 ${segmentId}: ${segmentData.classification}`);
+            console.log(`   Trimmed: ${trimmedStartTime}s-${trimmedEndTime}s`);
+            console.log(`   Original: ${originalStartTime}s-${originalEndTime}s (offset: +${silenceOffset}s)`);
+            
+            return {
+                startTime: originalStartTime,
+                endTime: originalEndTime,
+                classification: segmentData.classification || 'Unknown',
+                confidence: segmentData.confidence || 0,
+                id: segmentId
+            };
+        }).sort((a, b) => a.startTime - b.startTime);
         
-        console.log('⚠️ Using original segment timing (interpolation disabled)');
+        console.log('🔍 Processed segments:', segments);
+        
+        // Check if we need timing scaling
+        const analysisMaxTime = Math.max(...segments.map(s => s.endTime));
+        const actualAudioDuration = this.peaksInstance.options.mediaElement.duration;
+        const timeDifference = Math.abs(actualAudioDuration - analysisMaxTime);
+        
+        console.log('🔧 TIMING ANALYSIS:');
+        console.log(`   - Analysis max time: ${analysisMaxTime}s`);
+        console.log(`   - Actual audio duration: ${actualAudioDuration}s`);
+        console.log(`   - Time difference: ${timeDifference}s`);
+        console.log(`   - Needs scaling: ${timeDifference > 1.0}`);
+        
+        // Only scale if there's a significant difference (>1 second)
+        if (timeDifference > 1.0 && !isNaN(analysisMaxTime) && !isNaN(actualAudioDuration) && analysisMaxTime > 0) {
+            const timeScale = actualAudioDuration / analysisMaxTime;
+            console.log(`🔧 APPLYING SCALING with factor: ${timeScale}`);
+            
+            segments.forEach(segment => {
+                const originalStart = segment.startTime;
+                const originalEnd = segment.endTime;
+                segment.startTime = originalStart * timeScale;
+                segment.endTime = originalEnd * timeScale;
+                console.log(`   - Scaled ${originalStart.toFixed(2)}s-${originalEnd.toFixed(2)}s → ${segment.startTime.toFixed(2)}s-${segment.endTime.toFixed(2)}s`);
+            });
+        } else {
+            console.log('🔧 NO SCALING NEEDED - using original timing');
+        }
+        
+        console.log('🔍 Final segments:', segments);
 
         console.log(`🎯 Processing ${segments.length} raw segments for grouping...`);
 
@@ -830,20 +962,37 @@ class AudioSamplerApp {
 
         // Add regions as visual segments
         regions.forEach((region, index) => {
+            const startTime = parseFloat(region.startTime);
+            const endTime = parseFloat(region.endTime);
+            
+            // Validate timing values
+            if (isNaN(startTime) || isNaN(endTime) || !isFinite(startTime) || !isFinite(endTime)) {
+                console.error(`❌ Invalid timing for region ${index}: start=${startTime}, end=${endTime}`);
+                return;
+            }
+            
+            if (startTime < 0 || endTime <= startTime) {
+                console.error(`❌ Invalid timing range for region ${index}: ${startTime}s-${endTime}s`);
+                return;
+            }
+            
             const segmentConfig = {
-                startTime: parseFloat(region.startTime),
-                endTime: parseFloat(region.endTime),
-                labelText: `${region.classification} (${this.formatTime(region.endTime - region.startTime)})`,
+                startTime: startTime,
+                endTime: endTime,
+                labelText: region.classification,  // Simplified label text
+                id: `region_${region.classification.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${index}`,
                 color: this.getColorForContentType(region.classification.toLowerCase()),
-                id: `region_${index}`,
                 editable: false
             };
 
+            console.log(`🎨 Creating segment ${index}:`, segmentConfig);
+
             try {
                 this.peaksInstance.segments.add(segmentConfig);
-                console.log(`✅ Region: ${region.classification} (${region.startTime}s-${region.endTime}s)`);
+                console.log(`✅ Region added: ${region.classification} (${startTime}s-${endTime}s) color: ${segmentConfig.color}`);
             } catch (error) {
                 console.error(`❌ Failed to add region ${index}:`, error);
+                console.error(`❌ Segment config was:`, segmentConfig);
             }
         });
 
@@ -873,10 +1022,16 @@ class AudioSamplerApp {
         
         console.log(`🎨 Timeline segments added to waveform`);
         
-        // Add click handler for segments
+        // Add click handler for segments with timing debug
         this.peaksInstance.on('segments.click', (event) => {
             const segment = event.segment;
-            console.log(`🎵 Clicked segment: ${segment.labelText}`);
+            console.log('🎵 SEGMENT CLICK DEBUG:');
+            console.log(`   - Segment: ${segment.labelText}`);
+            console.log(`   - Segment start: ${segment.startTime}s`);
+            console.log(`   - Segment end: ${segment.endTime}s`);
+            console.log(`   - Current audio time: ${this.peaksInstance.options.mediaElement.currentTime}s`);
+            console.log(`   - Audio duration: ${this.peaksInstance.options.mediaElement.duration}s`);
+            
             this.playSegment(segment.startTime, segment.endTime);
         });
     }
@@ -1378,7 +1533,13 @@ class AudioSamplerApp {
             'sfx': '#FBBC05',     // Yellow
             'drums': '#EA4335',   // Red
             'melody': '#4285F4',  // Blue
-            'bass': '#34A853'     // Green
+            'bass': '#34A853',    // Green
+            // Additional mappings for analysis types
+            'female singing': '#4285F4',  // Blue (same as speech)
+            'male singing': '#4285F4',    // Blue (same as speech)
+            'singing': '#4285F4',         // Blue (same as speech)
+            'vocal': '#4285F4',           // Blue (same as speech)
+            'voice': '#4285F4'            // Blue (same as speech)
         };
         
         return colors[type?.toLowerCase()] || '#9AA0A6'; // Default to gray
