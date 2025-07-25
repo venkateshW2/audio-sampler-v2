@@ -48,7 +48,7 @@
                         <p class="upload-text">DROP AUDIO FILES</p>
                         <p class="upload-hint">wav, mp3, flac, m4a</p>
                         <input type="file" id="fileInput" accept="audio/*" style="display: none;">
-                        <button class="browse-btn" onclick="document.getElementById('fileInput').click()">
+                        <button class="browse-btn" id="browseBtn">
                             BROWSE
                         </button>
                     </div>
@@ -109,6 +109,12 @@
                     </div>
                     
                     <div class="transport-right">
+                        <div class="volume-controls">
+                            <button id="muteBtn" class="transport-btn" title="Mute">
+                                <i class="fas fa-volume-up"></i>
+                            </button>
+                            <input type="range" id="volumeSlider" class="volume-slider" min="0" max="100" value="50" title="Volume">
+                        </div>
                         <div class="analysis-display">
                             <span class="analysis-label">BPM:</span>
                             <span id="tempoValue" class="analysis-value">--</span>
@@ -236,7 +242,7 @@
 
     <!-- Scripts -->
     <!-- Load Peaks.js with dependencies (working configuration from test) -->
-    <script src="/ui/libs/konva.min.js"></script>
+    <script src="https://unpkg.com/konva@9/konva.min.js"></script>
     <script src="/ui/libs/waveform-data.min.js"></script>
     <script src="/ui/libs/peaks-official.js"></script>
     

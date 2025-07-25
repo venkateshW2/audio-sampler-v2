@@ -1,13 +1,7 @@
 // Audio Intelligence Sampler v2 - Main Application
-// Component architecture with ES6 modules for better organization
+// Standalone architecture ready for component modularization
 
-console.log('🚀 Loading NEW Audio Sampler v2 with component architecture...');
-
-// Import components from modules
-import { Timeline } from './components/Timeline.js';
-import { RegionManager } from './components/RegionManager.js';
-import { AudioLoader } from './components/AudioLoader.js';
-import { WaveformPlayer } from './components/WaveformPlayer.js';
+console.log('🚀 Loading Audio Sampler v2...');
 
 // Main application class
 class AudioSamplerApp {
@@ -235,6 +229,22 @@ class AudioSamplerApp {
             });
         }
         
+        // Volume controls
+        const muteBtn = document.getElementById('muteBtn');
+        const volumeSlider = document.getElementById('volumeSlider');
+        
+        if (muteBtn) {
+            muteBtn.addEventListener('click', () => {
+                this.toggleMute();
+            });
+        }
+        
+        if (volumeSlider) {
+            volumeSlider.addEventListener('input', (e) => {
+                this.setVolume(e.target.value / 100);
+            });
+        }
+        
         // Window click to close modal
         window.addEventListener('click', e => {
             if (e.target === this.databaseModal) {
@@ -333,19 +343,25 @@ class AudioSamplerApp {
             if (waveformData) {
                 this.updateLoadingText('Initializing waveform visualization...');
                 
-                // For file uploads, create audio element from file
-                if (this.uploadInput.files.length) {
-                    const audioElement = new Audio();
+                // Use processed audio file if available (for timeline alignment)
+                const audioElement = new Audio();
+                
+                if (result.upload_metadata?.processed_file_path) {
+                    // Use processed file from backend (ensures timeline alignment)
+                    audioElement.src = `${this.apiBase}/api/processed_audio/${encodeURIComponent(result.upload_metadata.processed_file_path)}`;
+                    console.log(`🎵 Using processed audio: ${result.upload_metadata.processed_file_path}`);
+                } else if (this.uploadInput.files.length) {
+                    // Fallback to original file for uploads
                     audioElement.src = URL.createObjectURL(this.uploadInput.files[0]);
-                    audioElement.preload = 'auto';
-                    await this.initializeWaveformWithData(audioElement, waveformData);
+                    console.log('🎵 Using original uploaded file');
                 } else {
-                    // For path-based analysis, try to access the audio file directly
-                    const audioElement = new Audio();
+                    // Fallback to file path for path-based analysis
                     audioElement.src = result.file_path || '';
-                    audioElement.preload = 'auto';
-                    await this.initializeWaveformWithData(audioElement, waveformData);
+                    console.log('🎵 Using file path');
                 }
+                
+                audioElement.preload = 'auto';
+                await this.initializeWaveformWithData(audioElement, waveformData);
             } else if (this.uploadInput.files.length) {
                 // Fallback to old audio loading method
                 this.updateLoadingText('Loading audio data...');
@@ -393,6 +409,7 @@ class AudioSamplerApp {
             // Check if Peaks.js is available
             if (typeof peaks === 'undefined') {
                 console.warn('⚠️ Peaks.js not available, skipping waveform visualization');
+                console.log('Debug: peaksAvailable =', window.peaksAvailable, ', peaks =', typeof peaks);
                 this.showEmptyWaveformState();
                 return null;
             }
@@ -525,10 +542,38 @@ class AudioSamplerApp {
                     console.log('✅ SUCCESS! Peaks.js initialized with waveform display!');
                     this.peaksInstance = peaksInstance;
                     
+                    // Set up time tracking for transport controls
+                    audioElement.addEventListener('timeupdate', () => {
+                        this.updateTimeDisplay();
+                    });
+                    
+                    // Set up playback state tracking
+                    audioElement.addEventListener('play', () => {
+                        this.playPauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
+                    });
+                    
+                    audioElement.addEventListener('pause', () => {
+                        this.playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
+                    });
+                    
+                    audioElement.addEventListener('ended', () => {
+                        this.playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
+                        this.updateTimeDisplay(0);
+                    });
+                    
                     // Load audio and generate waveform
                     audioElement.addEventListener('loadedmetadata', () => {
                         console.log(`✅ Audio loaded: ${audioElement.duration}s`);
                         console.log('🎵 Waveform should now be visible!');
+                        
+                        // Set initial volume
+                        audioElement.volume = 0.5;
+                        
+                        // Update total time display
+                        const totalTime = document.getElementById('totalTime');
+                        if (totalTime) {
+                            totalTime.textContent = this.formatTime(audioElement.duration);
+                        }
                     });
                     
                     audioElement.addEventListener('error', (e) => {
@@ -625,8 +670,8 @@ class AudioSamplerApp {
         // Update region display
         this.updateRegionDisplay(result);
         
-        // Update timeline segments
-        this.updateTimelineSegments(result);
+        // Add timeline segments to Peaks.js waveform
+        this.addTimelineSegments();
         
         // Update properties panel with correct data structure
         this.updatePropertiesPanel(result);
@@ -702,53 +747,159 @@ class AudioSamplerApp {
         }
     }
     
-    updateTimelineSegments(result) {
-        if (!this.timeline || !this.timeline.isInitialized) {
-            console.log('⚠️ Timeline not initialized, skipping timeline segments visualization');
-            // Timeline segments will still be shown in the properties panel
+    addTimelineSegments() {
+        console.log('🚀 addTimelineSegments() called!');
+        
+        if (!this.peaksInstance || !this.currentFileAnalysis) {
+            console.log('⚠️ Cannot add segments: missing Peaks instance or analysis data');
             return;
         }
         
         // Clear existing segments
-        if (this.timeline.clearSegments) {
-            this.timeline.clearSegments();
+        this.peaksInstance.segments.removeAll();
+        
+        // Use EXACT same data extraction logic as properties panel
+        let timelineClassifications = null;
+        if (this.currentFileAnalysis.region_analyses && this.currentFileAnalysis.region_analyses.length > 0) {
+            const classifierAnalysis = this.currentFileAnalysis.region_analyses.find(r => 
+                r.plugin_results && r.plugin_results.classifier && r.plugin_results.classifier.data);
+            
+            if (classifierAnalysis) {
+                timelineClassifications = classifierAnalysis.plugin_results.classifier.data;
+            }
         }
         
-        // Add timeline segments (new classification timeline)
-        if (result.timeline_segments && result.timeline_segments.length) {
-            result.timeline_segments.forEach(segment => {
-                const timelineSegment = {
-                    startTime: segment.start_time,
-                    endTime: segment.end_time,
-                    labelText: segment.content_type || 'Unknown',
-                    color: this.getColorForContentType(segment.content_type),
-                    editable: false,
-                    id: `timeline_${segment.id || Math.random().toString(36).substr(2, 9)}`,
-                    contentType: segment.content_type,
-                    confidence: segment.confidence || 0
-                };
-                
-                this.timeline.addSegment(timelineSegment);
-            });
+        // Extract timeline segments using same logic as properties panel
+        if (!timelineClassifications || !timelineClassifications.timeline_classifications) {
+            console.log('⚠️ No timeline_classifications found');
+            return;
         }
         
-        // Add content regions (older region detection)
-        if (result.regions && result.regions.length) {
-            result.regions.forEach(region => {
-                if (region.type === 'content') {
-                    const regionSegment = {
-                        startTime: region.start_time,
-                        endTime: region.end_time,
-                        labelText: region.label || 'Region',
-                        color: '#666666',
-                        editable: false,
-                        id: `region_${region.id || Math.random().toString(36).substr(2, 9)}`
-                    };
-                    
-                    this.timeline.addSegment(regionSegment, 'region');
+        const timelineSegs = timelineClassifications.timeline_classifications;
+        console.log(`🎯 Found ${Object.keys(timelineSegs).length} timeline segments`);
+        
+        // TODO: Fix timeline interpolation - currently causing misalignment
+        console.log('🔍 Timeline segments found:', Object.keys(timelineSegs).length);
+        
+        // For now, use original timing (without interpolation) to avoid random colors
+        const segments = Object.entries(timelineSegs).map(([segmentId, segmentData]) => ({
+            startTime: segmentData.time || 0,
+            endTime: (segmentData.time || 0) + (segmentData.duration || 0),
+            classification: segmentData.classification || 'Unknown',
+            confidence: segmentData.confidence || 0,
+            id: segmentId
+        })).sort((a, b) => a.startTime - b.startTime);
+        
+        console.log('⚠️ Using original segment timing (interpolation disabled)');
+
+        console.log(`🎯 Processing ${segments.length} raw segments for grouping...`);
+
+        // Group consecutive segments of same type into regions
+        const regions = [];
+        let currentRegion = null;
+
+        segments.forEach(segment => {
+            if (!currentRegion || currentRegion.classification !== segment.classification) {
+                // Start new region
+                if (currentRegion) {
+                    regions.push(currentRegion);
                 }
-            });
+                currentRegion = {
+                    startTime: segment.startTime,
+                    endTime: segment.endTime,
+                    classification: segment.classification,
+                    confidence: segment.confidence,
+                    segmentCount: 1
+                };
+            } else {
+                // Extend current region
+                currentRegion.endTime = segment.endTime;
+                currentRegion.confidence = Math.max(currentRegion.confidence, segment.confidence);
+                currentRegion.segmentCount++;
+            }
+        });
+
+        if (currentRegion) {
+            regions.push(currentRegion);
         }
+
+        console.log(`🎨 Grouped into ${regions.length} meaningful regions:`);
+        regions.forEach(region => {
+            console.log(`  📍 ${region.classification}: ${region.startTime}s-${region.endTime}s (${region.segmentCount} segments)`);
+        });
+
+        // Add regions as visual segments
+        regions.forEach((region, index) => {
+            const segmentConfig = {
+                startTime: parseFloat(region.startTime),
+                endTime: parseFloat(region.endTime),
+                labelText: `${region.classification} (${this.formatTime(region.endTime - region.startTime)})`,
+                color: this.getColorForContentType(region.classification.toLowerCase()),
+                id: `region_${index}`,
+                editable: false
+            };
+
+            try {
+                this.peaksInstance.segments.add(segmentConfig);
+                console.log(`✅ Region: ${region.classification} (${region.startTime}s-${region.endTime}s)`);
+            } catch (error) {
+                console.error(`❌ Failed to add region ${index}:`, error);
+            }
+        });
+
+        // Clear existing points first
+        if (this.peaksInstance.points) {
+            this.peaksInstance.points.removeAll();
+        }
+
+        // Add transition markers between different content types
+        for (let i = 1; i < regions.length; i++) {
+            const transitionTime = regions[i].startTime;
+            const fromType = regions[i-1].classification;
+            const toType = regions[i].classification;
+            
+            try {
+                this.peaksInstance.points.add({
+                    time: transitionTime,
+                    labelText: `${fromType} → ${toType}`,
+                    color: '#FF6B6B',
+                    id: `transition_${Date.now()}_${i}`  // Unique ID with timestamp
+                });
+                console.log(`🎯 Transition marker: ${fromType} → ${toType} at ${transitionTime}s`);
+            } catch (error) {
+                console.error(`❌ Failed to add transition marker:`, error);
+            }
+        }
+        
+        console.log(`🎨 Timeline segments added to waveform`);
+        
+        // Add click handler for segments
+        this.peaksInstance.on('segments.click', (event) => {
+            const segment = event.segment;
+            console.log(`🎵 Clicked segment: ${segment.labelText}`);
+            this.playSegment(segment.startTime, segment.endTime);
+        });
+    }
+    
+    playSegment(startTime, endTime) {
+        if (!this.peaksInstance) return;
+        
+        console.log(`▶️ Playing segment: ${startTime}s - ${endTime}s`);
+        
+        // Seek to start time
+        this.peaksInstance.player.seek(startTime);
+        
+        // Play the audio
+        this.peaksInstance.player.play();
+        
+        // Stop at end time
+        const stopTimer = setTimeout(() => {
+            this.peaksInstance.player.pause();
+            console.log('⏸️ Segment playback finished');
+        }, (endTime - startTime) * 1000);
+        
+        // Store timer to clear if user stops manually
+        this.currentSegmentTimer = stopTimer;
     }
     
     updatePropertiesPanel(result) {
@@ -804,9 +955,9 @@ class AudioSamplerApp {
             // Show timeline segments with their classifications
             const timelineSegs = timelineClassifications.timeline_classifications;
             Object.entries(timelineSegs).forEach(([segmentId, segmentData]) => {
-                const startTime = this.formatTime(segmentData.start_time || 0);
-                const endTime = this.formatTime(segmentData.end_time || 0);
-                const classification = segmentData.classification || segmentData.label || 'Unknown';
+                const startTime = this.formatTime(segmentData.time || 0);
+                const endTime = this.formatTime((segmentData.time || 0) + (segmentData.duration || 0));
+                const classification = segmentData.classification || 'Unknown';
                 const confidence = Math.round((segmentData.confidence || 0) * 100);
                 const color = this.getColorForContentType(classification.toLowerCase());
                 
@@ -1035,28 +1186,88 @@ class AudioSamplerApp {
     }
     
     togglePlayback() {
-        if (!this.waveformPlayer) {
+        // Clear any segment timer
+        if (this.currentSegmentTimer) {
+            clearTimeout(this.currentSegmentTimer);
+            this.currentSegmentTimer = null;
+        }
+        
+        if (!this.peaksInstance) {
             this.showError('Player not initialized');
             return;
         }
         
-        if (this.waveformPlayer.isPlaying()) {
-            this.waveformPlayer.pause();
+        if (this.peaksInstance.player.isPlaying()) {
+            this.peaksInstance.player.pause();
             this.playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
         } else {
-            this.waveformPlayer.play();
+            this.peaksInstance.player.play();
             this.playPauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
         }
     }
     
     stopPlayback() {
-        if (!this.waveformPlayer) {
+        // Clear any segment timer
+        if (this.currentSegmentTimer) {
+            clearTimeout(this.currentSegmentTimer);
+            this.currentSegmentTimer = null;
+        }
+        
+        if (!this.peaksInstance) {
             this.showError('Player not initialized');
             return;
         }
         
-        this.waveformPlayer.stop();
+        this.peaksInstance.player.pause();
+        this.peaksInstance.player.seek(0);
         this.playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
+        
+        // Update time display
+        this.updateTimeDisplay(0);
+    }
+    
+    toggleMute() {
+        if (!this.peaksInstance) return;
+        
+        const audioElement = this.peaksInstance.options.mediaElement;
+        const muteBtn = document.getElementById('muteBtn');
+        const volumeSlider = document.getElementById('volumeSlider');
+        
+        if (audioElement.muted) {
+            audioElement.muted = false;
+            muteBtn.innerHTML = '<i class="fas fa-volume-up"></i>';
+            volumeSlider.disabled = false;
+        } else {
+            audioElement.muted = true;
+            muteBtn.innerHTML = '<i class="fas fa-volume-mute"></i>';
+            volumeSlider.disabled = true;
+        }
+    }
+    
+    setVolume(volume) {
+        if (!this.peaksInstance) return;
+        
+        const audioElement = this.peaksInstance.options.mediaElement;
+        audioElement.volume = Math.max(0, Math.min(1, volume));
+        
+        // Update mute button based on volume
+        const muteBtn = document.getElementById('muteBtn');
+        if (volume === 0) {
+            muteBtn.innerHTML = '<i class="fas fa-volume-mute"></i>';
+        } else if (volume < 0.5) {
+            muteBtn.innerHTML = '<i class="fas fa-volume-down"></i>';
+        } else {
+            muteBtn.innerHTML = '<i class="fas fa-volume-up"></i>';
+        }
+    }
+    
+    updateTimeDisplay(currentTime = null) {
+        const currentTimeDisplay = document.getElementById('currentTime');
+        if (currentTimeDisplay) {
+            const time = currentTime !== null ? currentTime : 
+                        (this.peaksInstance ? this.peaksInstance.player.getCurrentTime() : 0);
+            currentTimeDisplay.textContent = this.formatTime(time);
+        }
     }
     
     async openDatabaseBrowser() {
@@ -1208,17 +1419,64 @@ class AudioSamplerApp {
 // Export the AudioSamplerApp class for external initialization
 export { AudioSamplerApp };
 
-// Only initialize if this module is loaded directly (not as import)
-// This allows index.html to control when initialization happens
-if (typeof window !== 'undefined' && !window.app && document.readyState !== 'loading') {
-    console.log('🚀 Direct module load detected, initializing app...');
-    try {
-        window.app = new AudioSamplerApp();
-        window.appLoaded = true;
-        console.log('✅ AudioSamplerApp initialized successfully');
-    } catch (error) {
-        console.error('❌ AudioSamplerApp initialization failed:', error);
-        console.error('Error stack:', error.stack);
-        window.appLoaded = false;
+// Stub component classes (minimal implementations)
+class Timeline {
+    constructor() {
+        this.isInitialized = false;
+    }
+}
+
+class RegionManager {
+    constructor(containerId) {
+        this.containerId = containerId;
+    }
+    
+    clearAll() {
+        console.log('RegionManager: clearAll called');
+    }
+    
+    addRegionLayer(regions) {
+        console.log('RegionManager: addRegionLayer called with', regions?.length || 0, 'regions');
+    }
+    
+    addClassificationLayer(classifications) {
+        console.log('RegionManager: addClassificationLayer called');
+    }
+}
+
+class AudioLoader {
+    constructor(apiBase) {
+        this.apiBase = apiBase;
+    }
+    
+    async getAudioBufferFromFile(file) {
+        console.log('AudioLoader: getAudioBufferFromFile called');
+        return null; // Not needed for current implementation
+    }
+}
+
+class WaveformPlayer {
+    constructor() {
+        this.playing = false;
+    }
+    
+    connectTimeline(timeline) {
+        console.log('WaveformPlayer: connectTimeline called');
+    }
+    
+    isPlaying() {
+        return this.playing;
+    }
+    
+    play() {
+        this.playing = true;
+    }
+    
+    pause() {
+        this.playing = false;
+    }
+    
+    stop() {
+        this.playing = false;
     }
 }

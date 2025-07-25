@@ -154,11 +154,12 @@ async def analyze_uploaded_file(file: UploadFile = File(...)):
             if not result:
                 raise HTTPException(status_code=500, detail="Engine returned empty result")
             
-            # Add upload metadata
+            # Add upload metadata and processed file info
             result['upload_metadata'] = {
                 'original_filename': file.filename,
                 'content_type': file.content_type,
-                'file_size': len(content)
+                'file_size': len(content),
+                'processed_file_path': tmp_path  # Include processed file path for frontend
             }
             
             logger.info(f"Upload analysis completed successfully for {file.filename}")
@@ -178,17 +179,38 @@ async def analyze_uploaded_file(file: UploadFile = File(...)):
             return JSONResponse(content=safe_data)
             
         finally:
-            # Clean up temporary file
-            try:
-                os.unlink(tmp_path)
-            except Exception as e:
-                logger.warning(f"Failed to delete temporary file {tmp_path}: {e}")
+            # Store processed file path for later cleanup (don't delete immediately)
+            # Frontend needs access to this file for correct audio display
+            logger.info(f"Processed file available at: {tmp_path}")
         
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Upload analysis error: {e}")
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+
+
+@router.get("/processed_audio/{file_path:path}")
+async def serve_processed_audio(file_path: str):
+    """
+    Serve processed audio files to frontend for playback.
+    """
+    import os
+    from fastapi.responses import FileResponse
+    
+    try:
+        # Validate that the file exists and is a temporary file
+        if not os.path.exists(file_path) or not os.path.basename(file_path).startswith('tmp'):
+            raise HTTPException(status_code=404, detail="Processed file not found")
+        
+        return FileResponse(
+            path=file_path, 
+            media_type="audio/mpeg",
+            filename=os.path.basename(file_path)
+        )
+    except Exception as e:
+        logger.error(f"Error serving processed audio: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to serve audio: {str(e)}")
 
 
 @router.get("/analyze/batch")
