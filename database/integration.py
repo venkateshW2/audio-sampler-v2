@@ -141,22 +141,53 @@ class DatabaseIntegration:
             if not file_with_regions:
                 return None
             
-            # Convert to API format
+            # Convert to engine-compatible API format
+            file_dict = file_with_regions.to_dict()
             result = {
-                'file': file_with_regions.to_dict(),
+                'file_id': file_with_regions.id,  # Include file ID at top level for audio serving
+                'file_path': file_with_regions.path,  # Include file path at top level
+                'file_metadata': file_dict,  # Match engine format
+                'duration_seconds': file_dict.get('duration_seconds', 0),
+                'success': True,
+                'timestamp': file_dict.get('date_analyzed') or file_dict.get('date_added'),
                 'regions': [],
+                'region_analyses': [],  # Add engine-compatible format
                 'analysis_summary': self._generate_analysis_summary(file_with_regions)
             }
             
-            # Add regions with their analysis results
+            # Add regions with their analysis results in both formats
             for region in file_with_regions.regions:
+                # Database format (existing)
                 region_data = region.to_dict()
                 region_data['analysis_results'] = {}
                 
+                # Engine format (new) - for timeline visualization compatibility
+                region_analysis = {
+                    'region_id': region.region_id,
+                    'region_metadata': {
+                        'start_time': region.start_time,
+                        'end_time': region.end_time,
+                        'duration': region.duration
+                    },
+                    'plugin_results': {}
+                }
+                
                 for analysis in region.analysis_results:
-                    region_data['analysis_results'][analysis.plugin_name] = analysis.to_dict()
+                    analysis_dict = analysis.to_dict()
+                    
+                    # Database format
+                    region_data['analysis_results'][analysis.plugin_name] = analysis_dict
+                    
+                    # Engine format - wrap in expected structure
+                    plugin_data = analysis_dict.get('results', {})
+                    region_analysis['plugin_results'][analysis.plugin_name] = {
+                        'data': plugin_data,
+                        'processing_time': (analysis_dict.get('processing_time_ms', 0) / 1000.0),  # Convert ms to seconds
+                        'success': analysis_dict.get('success', True)
+                    }
                 
                 result['regions'].append(region_data)
+                result['region_analyses'].append(region_analysis)
             
             return result
             

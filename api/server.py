@@ -194,22 +194,103 @@ async def analyze_uploaded_file(file: UploadFile = File(...)):
 async def serve_processed_audio(file_path: str):
     """
     Serve processed audio files to frontend for playback.
+    Supports both temporary uploaded files and permanent database files.
     """
     import os
     from fastapi.responses import FileResponse
     
     try:
-        # Validate that the file exists and is a temporary file
-        if not os.path.exists(file_path) or not os.path.basename(file_path).startswith('tmp'):
-            raise HTTPException(status_code=404, detail="Processed file not found")
+        # Check if it's a temporary file (uploaded)
+        if os.path.basename(file_path).startswith('tmp') and os.path.exists(file_path):
+            return FileResponse(
+                path=file_path, 
+                media_type="audio/mpeg",
+                filename=os.path.basename(file_path)
+            )
         
-        return FileResponse(
-            path=file_path, 
-            media_type="audio/mpeg",
-            filename=os.path.basename(file_path)
-        )
+        # Check if it's a database file path
+        if os.path.exists(file_path):
+            # Determine media type from file extension
+            ext = os.path.splitext(file_path)[1].lower()
+            media_type_map = {
+                '.mp3': 'audio/mpeg',
+                '.wav': 'audio/wav', 
+                '.flac': 'audio/flac',
+                '.m4a': 'audio/mp4',
+                '.ogg': 'audio/ogg'
+            }
+            media_type = media_type_map.get(ext, 'audio/mpeg')
+            
+            return FileResponse(
+                path=file_path,
+                media_type=media_type,
+                filename=os.path.basename(file_path)
+            )
+        
+        raise HTTPException(status_code=404, detail="Audio file not found")
+        
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error serving processed audio: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to serve audio: {str(e)}")
+
+
+@router.get("/audio/{file_id}")
+async def serve_database_audio(file_id: int):
+    """
+    Serve audio files from database by file ID.
+    This is the preferred method for database-loaded files.
+    """
+    import os
+    from fastapi.responses import FileResponse
+    
+    try:
+        # Import engine
+        try:
+            from main import engine
+        except ImportError as import_err:
+            logger.error(f"Failed to import engine: {import_err}")
+            raise HTTPException(status_code=503, detail="Engine module not available")
+        
+        if not engine or not engine.db_integration:
+            raise HTTPException(status_code=503, detail="Database not available")
+        
+        # Get file from database
+        from database.models import File as FileModel
+        with engine.db_integration.db.get_session() as session:
+            file_record = session.query(FileModel).filter(FileModel.id == file_id).first()
+            
+            if not file_record:
+                raise HTTPException(status_code=404, detail="File not found in database")
+            
+            file_path = file_record.path
+            
+            # Check if file exists on disk
+            if not os.path.exists(file_path):
+                raise HTTPException(status_code=404, detail="Audio file not found on disk")
+            
+            # Determine media type from file extension
+            ext = os.path.splitext(file_path)[1].lower()
+            media_type_map = {
+                '.mp3': 'audio/mpeg',
+                '.wav': 'audio/wav', 
+                '.flac': 'audio/flac',
+                '.m4a': 'audio/mp4',
+                '.ogg': 'audio/ogg'
+            }
+            media_type = media_type_map.get(ext, 'audio/mpeg')
+            
+            return FileResponse(
+                path=file_path,
+                media_type=media_type,
+                filename=os.path.basename(file_path)
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error serving database audio: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to serve audio: {str(e)}")
 
 

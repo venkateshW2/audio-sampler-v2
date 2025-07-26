@@ -369,24 +369,27 @@ class AudioSamplerApp {
                 let processedFilePath = uploadMetadata?.processed_file_path || result.file_path;
                 console.log('   - processedFilePath:', processedFilePath);
                 
-                // ALWAYS use original file - we'll fix timing with silence offset
+                // Use backend audio serving for all files
                 if (this.uploadInput.files.length) {
-                    audioElement.src = URL.createObjectURL(this.uploadInput.files[0]);
-                    console.log('🎵 Using original uploaded file (will fix timing with silence offset)');
-                } else {
-                    audioElement.src = result.file_path || '';
-                    console.log('🎵 Using file path');
-                }
-                
-                // If no processed file, use original (with timing mismatch warning)
-                if (!processedAudioWorked) {
-                    if (this.uploadInput.files.length) {
-                        audioElement.src = URL.createObjectURL(this.uploadInput.files[0]);
-                        console.log('🎵 Using original uploaded file (TIMING WILL BE WRONG)');
+                    // For uploaded files, use the processed file path via backend
+                    if (processedFilePath) {
+                        audioElement.src = `${this.apiBase}/api/processed_audio/${encodeURIComponent(processedFilePath)}`;
+                        console.log('🎵 Using backend processed audio endpoint for uploaded file');
                     } else {
-                        audioElement.src = result.file_path || '';
-                        console.log('🎵 Using file path');
+                        // Fallback to blob URL for uploaded files if no processed path
+                        audioElement.src = URL.createObjectURL(this.uploadInput.files[0]);
+                        console.log('🎵 Fallback to blob URL for uploaded file');
                     }
+                } else if (result.file_id) {
+                    // For database files, use the file ID endpoint
+                    audioElement.src = `${this.apiBase}/api/audio/${result.file_id}`;
+                    console.log('🎵 Using backend audio endpoint for database file ID:', result.file_id);
+                } else if (result.file_path) {
+                    // For file path analysis, use the file path endpoint
+                    audioElement.src = `${this.apiBase}/api/processed_audio/${encodeURIComponent(result.file_path)}`;
+                    console.log('🎵 Using backend processed audio endpoint for file path');
+                } else {
+                    console.error('❌ No valid audio source found in result');
                 }
                 
                 audioElement.preload = 'auto';
@@ -1461,7 +1464,7 @@ class AudioSamplerApp {
                     : 'Unknown';
                 
                 html += `
-                    <div class="db-file-item" data-path="${file.path}">
+                    <div class="db-file-item" data-path="${file.path}" data-file-id="${file.id}">
                         <div class="db-file-header">
                             <span class="db-file-name">${file.filename || file.path.split('/').pop()}</span>
                             <span class="db-file-date">${formattedDate}</span>
@@ -1481,7 +1484,8 @@ class AudioSamplerApp {
             document.querySelectorAll('.db-file-item').forEach(item => {
                 item.addEventListener('click', () => {
                     const path = item.dataset.path;
-                    this.loadDatabaseFile(path);
+                    const fileId = item.dataset.fileId;
+                    this.loadDatabaseFile(path, fileId);
                 });
             });
         } catch (error) {
@@ -1503,16 +1507,47 @@ class AudioSamplerApp {
         }, 300);
     }
     
-    async loadDatabaseFile(path) {
+    async loadDatabaseFile(path, fileId = null) {
         try {
             this.databaseModal.style.display = 'none';
             this.showLoading(`Loading ${path.split('/').pop()}...`);
             
-            // Set file path in upload form
-            this.uploadPathInput.value = path;
-            
-            // Process the file
-            await this.handleFileUpload();
+            if (fileId) {
+                // Load from database using file ID - more efficient, gets existing analysis
+                const response = await fetch(`${this.apiBase}/database/files/${encodeURIComponent(path)}`);
+                
+                if (!response.ok) {
+                    throw new Error(`Database file lookup failed: ${response.status} ${response.statusText}`);
+                }
+                
+                const result = await response.json();
+                
+                // Add file ID to result for audio serving
+                result.file_id = fileId;
+                
+                // Check if we have waveform data
+                const waveformData = result.waveform_data;
+                if (waveformData) {
+                    this.updateLoadingText('Initializing waveform visualization...');
+                    
+                    const audioElement = new Audio();
+                    // Use backend audio serving endpoint for database files
+                    audioElement.src = `${this.apiBase}/api/audio/${fileId}`;
+                    audioElement.preload = 'auto';
+                    
+                    await this.initializeWaveformWithData(audioElement, waveformData);
+                } else {
+                    console.log('No waveform data found, displaying results without visualization');
+                }
+                
+                // Show analysis results
+                this.displayAnalysisResults(result);
+                this.hideLoading();
+            } else {
+                // Fallback to path-based analysis (re-analyze the file)
+                this.uploadPathInput.value = path;
+                await this.handleFileUpload();
+            }
         } catch (error) {
             console.error('Database file loading failed:', error);
             this.showError(`Failed to load file: ${error.message}`);
