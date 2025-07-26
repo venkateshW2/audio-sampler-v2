@@ -97,7 +97,8 @@
 
 ### Extended API (`api/server.py`):
 - `POST /api/analyze/upload` - Upload and analyze audio file
-- `GET /api/processed_audio/{path}` - Serve processed audio files
+- `GET /api/processed_audio/{path}` - Serve processed audio files (universal support)
+- `GET /api/audio/{file_id}` - Serve database audio files by ID (Phase 1 addition)
 - `GET /api/system/resources` - System resource status
 - `POST /api/system/cleanup` - Force resource cleanup
 
@@ -200,50 +201,25 @@ numpy==1.24.3
 }
 ```
 
-## Frontend Features
+## Current Status - Phase 1 Complete
 
-### UI Components:
+### ✅ Completed Features:
+- **Dual environment architecture** fully operational
+- **Core backend engine** with region processing
+- **All 5 core plugins** working (including Essentia bridge)
+- **Database integration** with full CRUD
+- **Waveform generation** backend
+- **Peaks.js frontend** integration
+- **Timeline visualization** with silence offset correction
+- **File upload** and path-based analysis
+- **Database browser** with search
+- **Backend audio serving** endpoints for universal file access
 
-- __Three-Panel Layout__: File browser | Waveform | Analysis
-- __Drag & Drop__: File upload with visual feedback
-- __Real-time Waveform__: Interactive Peaks.js visualization
-- __Timeline Segments__: Color-coded content classification
-- __Transport Controls__: Play/pause, seek, volume
-- __Database Browser__: Search and load previous analyses
-
-### Visual Features:
-
-- __Smart Segment Grouping__: 19 micro-segments → 3-4 meaningful regions
-- __Color Coding__: Consistent colors across waveform and analysis
-- __Interactive Playback__: Click segments to play specific content
-- __Professional UI__: DAW-style interface with dark theme
-
-## Current Status
-
-### ✅ Completed:
-
-- __Dual environment architecture__ fully operational
-- __Core backend engine__ with region processing
-- __All 5 core plugins__ working (including Essentia bridge)
-- __Database integration__ with full CRUD
-- __Waveform generation__ backend
-- __Peaks.js frontend__ integration
-- __Timeline visualization__ with silence offset correction
-- __File upload__ and path-based analysis
-- __Database browser__ with search
-
-### ⚠️ Known Limitations:
-
-- __Client-side audio loading__: Uses blob URLs (won't work for database files)
-- __Backend audio serving__: Need `/api/audio/` endpoint for universal access
-- __Timing alignment__: Fixed with silence offset correction for uploaded files
-
-### 🎯 Next Priorities:
-
-1. Backend audio serving endpoint for database files
-2. Enhanced UI/UX with keyboard shortcuts
-3. Performance optimization for large files
-4. Phase 2: Batch processing and advanced features
+### ⚠️ Known Issues (Phase 1.5 Targets):
+- **Plugin Communication**: ContentAnalysisPlugin → ClassifierPlugin data handoff issues
+- **Classification Processing**: Timeline vs traditional 10-second fallback confusion
+- **Performance**: Large file processing optimization needed
+- **Error Handling**: Plugin failure recovery improvements needed
 
 ## Usage Examples
 
@@ -290,7 +266,156 @@ curl http://localhost:8000/database/stats
 
 ## Architecture Summary
 
-The __Audio Intelligence Sampler v2__ successfully implements a __dual environment architecture__ that resolves the NumPy 2.x vs Essentia compatibility issue while maintaining the sacred "never crash" principle. The system is production-ready for Phase 1 with 89.5% accuracy key detection via Essentia subprocess bridge and comprehensive audio analysis capabilities." > backend-details.md
+The **Audio Intelligence Sampler v2** successfully implements a **dual environment architecture** that resolves the NumPy 2.x vs Essentia compatibility issue while maintaining the sacred "never crash" principle. Phase 1 completed with 89.5% accuracy key detection via Essentia subprocess bridge and comprehensive audio analysis capabilities.
 
-```
-```
+---
+
+# PHASE 1.5: BACKEND REFINEMENT ROADMAP
+
+## 🎯 **MISSION: FROM WORKING TO PRODUCTION-GRADE**
+
+Phase 1 achieved "working" status. Phase 1.5 transforms this into a **bulletproof, production-grade backend** by systematically refining each component based on real-world usage patterns and identified issues.
+
+## 🔍 **CRITICAL ISSUES IDENTIFIED**
+
+### **1. Classification Region Processing Issue** 🚨
+- **Problem**: ClassifierPlugin may appear to only process "first region"
+- **Root Cause**: Timeline-based classification vs traditional 10-second fallback confusion
+- **Impact**: Users expect multi-region classification but see inconsistent behavior
+- **Priority**: HIGH - Core functionality perception issue
+
+**Investigation Questions for Implementation:**
+- Q1: How does ContentAnalysisPlugin pass timeline segments to ClassifierPlugin?
+- Q2: What triggers the fallback to 10-second traditional classification?
+- Q3: Are timeline segments being created properly for all audio content types?
+
+### **2. ContentAnalysisPlugin → ClassifierPlugin Data Handoff** ⚠️
+- **Problem**: Timeline segments not properly passed between plugins
+- **Root Cause**: Feature cache vs plugin result data structure mismatch
+- **Impact**: Classifier falls back to 10-second chunks instead of intelligent segments
+- **Priority**: HIGH - Reduces classification accuracy
+
+**Investigation Questions for Implementation:**
+- Q1: What data structure does ContentAnalysisPlugin store in feature cache?
+- Q2: What format does ClassifierPlugin expect for timeline segments?
+- Q3: Are there version/format mismatches in the plugin communication protocol?
+
+### **3. Long File Processing Performance** ⚠️
+- **Problem**: Large files (>5 minutes) may have performance issues
+- **Root Cause**: Memory management and processing pipeline inefficiencies
+- **Impact**: User experience degradation for real-world content
+- **Priority**: MEDIUM - Scalability concern
+
+**Investigation Questions for Implementation:**
+- Q1: At what file size/duration do we see performance degradation?
+- Q2: Which plugins consume the most memory for large files?
+- Q3: Can we implement streaming/chunked processing for large files?
+
+### **4. Database Integration Robustness** ⚠️
+- **Problem**: Database format vs engine format transformation complexity
+- **Root Cause**: Multiple data format conversions and potential inconsistencies
+- **Impact**: Timeline visualization and data integrity issues
+- **Priority**: MEDIUM - Data reliability concern
+
+**Investigation Questions for Implementation:**
+- Q1: Are there data loss issues in engine→database→frontend transformations?
+- Q2: Which format conversions are most error-prone?
+- Q3: Can we standardize on a single data format throughout the pipeline?
+
+## 🏗️ **SYSTEMATIC REFINEMENT PLAN**
+
+### **Phase 1.5.1: Plugin Communication Architecture** (Week 1)
+**Goal**: Perfect plugin-to-plugin data handoff and eliminate fallback scenarios
+
+#### **Week 1 Sprint Questions:**
+- **Day 1**: Can you reproduce the classification issue with specific test files?
+- **Day 2**: What exactly is stored in the feature cache by ContentAnalysisPlugin?
+- **Day 3**: How should we standardize the plugin communication protocol?
+- **Day 4**: What integration tests should we write to prevent regressions?
+- **Day 5**: How can we make plugin communication failures more visible to users?
+
+### **Phase 1.5.2: Database & Storage Reliability** (Week 2)
+**Goal**: Bulletproof data persistence and retrieval
+
+#### **Week 2 Sprint Questions:**
+- **Day 1**: Which database queries are slowest with large datasets?
+- **Day 2**: Are there data integrity issues in the current schema?
+- **Day 3**: How should we handle database schema migrations?
+- **Day 4**: What backup and recovery strategy should we implement?
+- **Day 5**: How can we monitor database performance in production?
+
+### **Phase 1.5.3: Audio Processing Pipeline Hardening** (Week 3)
+**Goal**: Rock-solid audio handling for any input
+
+#### **Week 3 Sprint Questions:**
+- **Day 1**: What audio formats/edge cases cause processing failures?
+- **Day 2**: How can we improve silence detection for different content types?
+- **Day 3**: What's the optimal memory management strategy for large files?
+- **Day 4**: How should we handle corrupted or unusual audio files?
+- **Day 5**: Can we parallelize audio processing safely?
+
+### **Phase 1.5.4: Resource Management & Performance** (Week 4)
+**Goal**: Optimal resource utilization and scalability
+
+#### **Week 4 Sprint Questions:**
+- **Day 1**: Where are the memory leaks and inefficiencies?
+- **Day 2**: How can we better utilize GPU resources?
+- **Day 3**: What's the optimal caching strategy for features?
+- **Day 4**: How should we handle concurrent processing requests?
+- **Day 5**: What performance monitoring should we implement?
+
+## 🧪 **TESTING & VALIDATION FRAMEWORK**
+
+### **Test File Collection Needed:**
+- **Short files** (<30s): Various formats and content types
+- **Medium files** (1-5 min): Typical user content
+- **Long files** (>10 min): Stress testing scenarios
+- **Edge cases**: Silence, noise, corrupted files, unusual formats
+
+### **Performance Benchmarks:**
+- **Processing speed**: Target <0.3x real-time for typical files
+- **Memory usage**: Target <2GB peak for 500MB audio files
+- **Database performance**: Target <100ms for typical queries
+- **Error rate**: Target <0.1% processing failures
+
+## 📋 **IMPLEMENTATION CHECKLIST**
+
+### **Week 1: Plugin Communication (Ready to Start)**
+- [ ] Reproduce classification issue with test files
+- [ ] Profile ContentAnalysisPlugin → ClassifierPlugin data flow
+- [ ] Document current plugin communication patterns
+- [ ] Identify exact data handoff failures
+- [ ] Implement standardized plugin communication protocol
+- [ ] Write integration tests for plugin communication
+- [ ] Validate fix with original problematic files
+
+### **Development Notes for Implementation:**
+1. **Start with specific test cases**: Use the files that showed the issue
+2. **Add extensive logging**: Track data flow between plugins
+3. **Write tests first**: Define expected behavior before fixing
+4. **Incremental changes**: Small, testable improvements
+5. **Performance monitoring**: Track impact of each change
+
+## 🎯 **SUCCESS CRITERIA FOR PHASE 1.5**
+
+### **Functional Requirements:**
+- ✅ All regions properly classified (no "first region only" issues)
+- ✅ 99.9% successful processing rate for valid audio files
+- ✅ Zero database inconsistencies or data loss
+- ✅ Graceful handling of all error scenarios
+
+### **Performance Requirements:**
+- ✅ <0.3x real-time processing for files up to 30 minutes
+- ✅ <2GB peak memory usage for 500MB audio files  
+- ✅ <100ms average database query response time
+- ✅ <10s full system startup time
+
+### **Quality Requirements:**
+- ✅ >90% test coverage for core components
+- ✅ 100% API endpoint documentation
+- ✅ Zero memory leaks in 24-hour stress testing
+- ✅ Comprehensive error logging and diagnostics
+
+---
+
+This document serves as the complete technical foundation and refinement roadmap for Audio Intelligence Sampler v2. Each implementation session should reference this document for context, current status, and specific questions to address.
